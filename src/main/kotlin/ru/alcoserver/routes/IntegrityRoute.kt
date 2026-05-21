@@ -12,6 +12,7 @@ import ru.alcoserver.models.IntegrityErrorMessage
 import ru.alcoserver.models.IntegrityInvalidReason
 import ru.alcoserver.models.IntegrityRequest
 import ru.alcoserver.models.IntegrityResult
+import ru.alcoserver.routes.APIConstants.API_PATH
 import ru.alcoserver.services.IntegrityService
 
 @Serializable
@@ -49,10 +50,12 @@ data class IntegrityBadRequestResponse(
     val valid: Boolean = false
 )
 
+private const val INTEGRITY_ROUTE = "/integrity"
+
 fun Route.integrityRoute(integrityService: IntegrityService) {
     val logger = LoggerFactory.getLogger("IntegrityRoute")
 
-    route("/api/v1/integrity") {
+    route(API_PATH + INTEGRITY_ROUTE) {
         post {
             try {
                 val request = call.receive<IntegrityRequest>()

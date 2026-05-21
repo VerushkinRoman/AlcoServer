@@ -10,6 +10,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import ru.alcoserver.models.NotificationDTO
+import ru.alcoserver.routes.APIConstants.API_PATH
 import ru.alcoserver.services.FirebaseService
 
 @Serializable
@@ -29,11 +30,14 @@ data class NotificationBadRequestResponse(
     val error: String
 )
 
+private const val NOTIFICATIONS_ROUTE = "/notifications"
+private const val SEND_PATH = "/send"
+
 fun Route.notificationRoute(firebaseService: FirebaseService) {
     val logger = LoggerFactory.getLogger("NotificationRoute")
 
-    route("/api/v1/notifications") {
-        post("/send") {
+    route(API_PATH + NOTIFICATIONS_ROUTE) {
+        post(SEND_PATH) {
             try {
                 val request = call.receive<NotificationDTO>()
 

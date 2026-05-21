@@ -11,32 +11,20 @@ import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.path
-import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
-import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import org.slf4j.event.Level
 import ru.alcoserver.config.AppConfig
+import ru.alcoserver.routes.adviceRoute
+import ru.alcoserver.routes.healthRoute
 import ru.alcoserver.routes.integrityRoute
 import ru.alcoserver.routes.notificationRoute
+import ru.alcoserver.services.AdviceService
 import ru.alcoserver.services.FirebaseService
 import ru.alcoserver.services.IntegrityService
-
-@Serializable
-data class HealthResponse(
-    val status: String = "healthy",
-    val timestamp: Long = System.currentTimeMillis(),
-    val services: ServicesStatus = ServicesStatus()
-)
-
-@Serializable
-data class ServicesStatus(
-    @SerialName("play_integrity") val playIntegrity: String = "enabled",
-    val firebase: String = "enabled"
-)
+import ru.alcoserver.services.RateLimiterService
+import ru.alcoserver.services.RequestLoggerService
 
 fun main() {
     Runtime.getRuntime().addShutdownHook(Thread {
@@ -53,6 +41,9 @@ fun Application.configureServer() {
 
     val integrityService = IntegrityService()
     val firebaseService = FirebaseService()
+    val rateLimiterService = RateLimiterService(maxRequestsPerMinute = 20)
+    val requestLogger = RequestLoggerService()
+    val adviceService = AdviceService(rateLimiterService)
 
     install(ContentNegotiation) {
         json()
@@ -74,15 +65,15 @@ fun Application.configureServer() {
     }
 
     routing {
-        get("/health") {
-            call.respond(HealthResponse())
-        }
-
+        healthRoute()
         integrityRoute(integrityService)
         notificationRoute(firebaseService)
+        adviceRoute(adviceService, firebaseService, requestLogger)
     }
 
     monitor.subscribe(ApplicationStopped) {
         logger.info("Application stopped")
+        adviceService.shutdown()
+        requestLogger.shutdown()
     }
 }
