@@ -1,0 +1,48 @@
+# Firebase service account (содержит приватные ключи!)
+config/firebase-service-account.json
+*.json.key
+
+# Gradle
+.gradle/
+build/
+build
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.gradle
+.idea
+.kotlin
+.fleet
+.vscode
+.vs
+.DS_Store
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+/var/log/
+
+# Environment
+.env
+.env.local
+
+captures
+.externalNativeBuild
+.cxx
+local.properties
+xcuserdata
+signingKey.properties
+google-services.json
+*.apk
+*.aab
+*.jks
+*.pepk
+/composeApp/OauthProperties.properties
+/export_project.ps1
+/.firebaserc
+/firebase.json
+/skills-lock.json
