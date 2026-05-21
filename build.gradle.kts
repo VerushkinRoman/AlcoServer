@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ktor)
+    alias(libs.plugins.shadow)
     application
 }
 
@@ -10,6 +11,7 @@ version = "1.0.0"
 
 application {
     mainClass.set("ru.alcoserver.ApplicationKt")
+    applicationDefaultJvmArgs = listOf("-Xmx512m")
 }
 
 repositories {
@@ -38,4 +40,8 @@ dependencies {
     implementation(libs.logback.classic)
 
     implementation(libs.kotlinx.coroutines.core)
+}
+
+tasks.build {
+    dependsOn(tasks.shadowJar)
 }
