@@ -47,3 +47,7 @@ dependencies {
 tasks.build {
     dependsOn(tasks.shadowJar)
 }
+
+tasks.build {
+    dependsOn(tasks.shadowJar)
+}
