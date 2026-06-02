@@ -11,7 +11,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.minus
+import kotlinx.datetime.todayIn
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import ru.alcoserver.models.AdviceRequest
@@ -24,6 +28,7 @@ import ru.alcoserver.services.AdviceService
 import ru.alcoserver.services.FirebaseService
 import ru.alcoserver.services.RateLimitResult
 import ru.alcoserver.services.RequestLoggerService
+import kotlin.time.Clock
 
 @Serializable
 data class AdviceResponse(
@@ -89,7 +94,13 @@ fun Route.adviceRoute(
                 val locale = AppLocale.fromValue(request.locale)
                 logger.info("Processing advice request for locale: $locale")
 
-                val llmDates = request.data.map { drinkData ->
+                val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
+                val twoYearsAgo = today.minus(2, DateTimeUnit.YEAR)
+                val minDate = twoYearsAgo.toEpochDays()
+
+                val llmDates = request.data.mapNotNull { drinkData ->
+                    if (drinkData.date < minDate) return@mapNotNull null
+
                     try {
                         val localDate = LocalDate.fromEpochDays(drinkData.date.toInt())
                         LLMDate(
