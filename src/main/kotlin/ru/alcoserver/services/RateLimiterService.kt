@@ -24,7 +24,7 @@ data class QueuedRequest(
 
 class RateLimiterService(
     private val maxRequestsPerMinute: Int = 20,
-    private val cooldownPeriodMs: Long = 60_000L / maxRequestsPerMinute
+    private val cooldownPeriodMs: Long = 60.seconds.inWholeMilliseconds / maxRequestsPerMinute
 ) {
     private val logger = LoggerFactory.getLogger(RateLimiterService::class.java)
 
@@ -58,25 +58,27 @@ class RateLimiterService(
                 requestTimestamps.add(Instant.now())
                 activeRequests.incrementAndGet()
 
-                try {
-                    logger.debug("Processing request $requestId immediately (count: ${currentCount + 1})")
-                    block(requestData)
-                    RateLimitResult.Processed(requestId)
-                } catch (e: Exception) {
-                    logger.error("Failed to process request $requestId", e)
-                    RateLimitResult.Failed(requestId, e.message ?: "Unknown error")
-                } finally {
-                    activeRequests.decrementAndGet()
+                scope.launch {
+                    try {
+                        logger.debug("Processing request $requestId immediately (count: ${currentCount + 1})")
+                        block(requestData)
+                    } catch (e: Exception) {
+                        logger.error("Failed to process request $requestId", e)
+                    } finally {
+                        activeRequests.decrementAndGet()
+                    }
                 }
+
+                RateLimitResult.Processed(requestId)
             } else {
                 logger.info("Rate limit reached (${currentCount}/${maxRequestsPerMinute}), queuing request $requestId")
 
                 val oldestTimestamp = requestTimestamps.peek()
                 val waitTimeMs = if (oldestTimestamp != null) {
                     val elapsed = Instant.now().toEpochMilli() - oldestTimestamp.toEpochMilli()
-                    maxOf(0, 60_000 - elapsed)
+                    maxOf(0, 60.seconds.inWholeMilliseconds - elapsed)
                 } else {
-                    60_000
+                    60.seconds.inWholeMilliseconds
                 }
 
                 val queuedRequest = QueuedRequest(
@@ -143,8 +145,8 @@ class RateLimiterService(
                 } else {
                     val oldestTimestamp = requestTimestamps.peek()
                     if (oldestTimestamp != null) {
-                        val waitTime =
-                            60_000 - (Instant.now().toEpochMilli() - oldestTimestamp.toEpochMilli())
+                        val waitTime = 60.seconds.inWholeMilliseconds - (Instant.now()
+                            .toEpochMilli() - oldestTimestamp.toEpochMilli())
                         if (waitTime > 0) {
                             logger.debug("Waiting ${waitTime}ms for rate limit reset")
                             delay(waitTime.milliseconds)
