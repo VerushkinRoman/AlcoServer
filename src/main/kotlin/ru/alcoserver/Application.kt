@@ -9,6 +9,7 @@ import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.plugins.forwardedheaders.XForwardedHeaders
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.path
 import io.ktor.server.response.respondText
@@ -48,6 +49,8 @@ fun Application.configureServer() {
     install(ContentNegotiation) {
         json()
     }
+
+    install(XForwardedHeaders)
 
     install(CallLogging) {
         level = Level.INFO
