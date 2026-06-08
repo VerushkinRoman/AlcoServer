@@ -70,11 +70,21 @@ class AdviceService(
     private val apiKey: String
 
     private val models = listOf(
-        "openrouter/owl-alpha",
+        "nvidia/nemotron-3-super-120b-a12b:free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "nvidia/nemotron-3-nano-30b-a3b:free",
+        "nvidia/nemotron-3-nano-omni:free",
+        "nvidia/nemotron-nano-9b-v2:free",
+        "nvidia/nemotron-nano-12b-2-vl:free",
+        "openai/gpt-oss-120b:free",
+        "google/gemma-4-31b-it:free",
         "google/gemma-4-26b-a4b-it:free",
+        "openrouter/owl-alpha",
         "poolside/laguna-m.1:free",
+        "poolside/laguna-xs.2:free",
         "z-ai/glm-4.5-air:free",
-        "nvidia/nemotron-3-super-120b-a12b:free"
+        "openai/gpt-oss-20b:free",
+        "moonshotai/kimi-k2.6:free"
     )
 
     private val systemPrompt = """
@@ -116,10 +126,14 @@ class AdviceService(
         Сводка:
         $dataString
 
+        ВСЕ СРАВНЕНИЯ ДЕЛАЙ С СЕГОДНЯШНЕЙ ДАТОЙ: $today
+        
         Обязательно учти сегодняшнюю дату. И если дата сегодня это еще не значит, что человек сегодня пил.
         Только если она фактически не указана в сводке!
         
         Таже обязательно учти, что все остальные даты кроме тех, которые указаны в сводке являются трезвыми!
+        
+        Держи во внимании что если сегодня не пил, это еще не факт, что человек сегодня не выпьет.
         
         Еще учти, что у человека календарь начинается с самой ранней даты в сводке.
         И если в прошлом месяце или году нет дат это не значит что он не пил, так как календарь начинается с самой ранней даты в сводке!
