@@ -6,7 +6,8 @@ import kotlinx.serialization.Serializable
 data class NotificationDTO(
     val title: String,
     val body: String,
-    val token: String
+    val token: String,
+    val type: String? = null
 )
 
 @Serializable

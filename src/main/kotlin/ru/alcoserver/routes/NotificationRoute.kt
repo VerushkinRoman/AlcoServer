@@ -10,6 +10,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import ru.alcoserver.models.NotificationDTO
+import ru.alcoserver.models.NotificationType
 import ru.alcoserver.routes.APIConstants.API_PATH
 import ru.alcoserver.services.FirebaseService
 
@@ -65,7 +66,8 @@ fun Route.notificationRoute(firebaseService: FirebaseService) {
                     return@post
                 }
 
-                logger.info("Sending notification: ${request.title}")
+                val type = request.type ?: NotificationType.DEFAULT.value
+                logger.info("Sending notification: ${request.title} (type: $type)")
 
                 val result = firebaseService.sendNotification(request)
 

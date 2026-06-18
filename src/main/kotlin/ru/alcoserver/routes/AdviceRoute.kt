@@ -23,6 +23,7 @@ import ru.alcoserver.models.AppLocale
 import ru.alcoserver.models.DrinkType
 import ru.alcoserver.models.LLMDate
 import ru.alcoserver.models.NotificationDTO
+import ru.alcoserver.models.NotificationType
 import ru.alcoserver.routes.APIConstants.API_PATH
 import ru.alcoserver.services.AdviceService
 import ru.alcoserver.services.FirebaseService
@@ -355,7 +356,8 @@ private fun sendNotification(
         val notificationDTO = NotificationDTO(
             title = title,
             body = body,
-            token = token
+            token = token,
+            type = NotificationType.ADVICE.value,
         )
 
         val result = firebaseService.sendNotification(notificationDTO)

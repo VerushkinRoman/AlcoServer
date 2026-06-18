@@ -67,7 +67,7 @@ class FirebaseService {
         return try {
             logger.info("Sending notification to token: ${notificationDTO.token.take(20)}...")
 
-            val message = Message.builder()
+            val messageBuilder = Message.builder()
                 .setToken(notificationDTO.token)
                 .setNotification(
                     Notification.builder()
@@ -75,7 +75,15 @@ class FirebaseService {
                         .setBody(notificationDTO.body)
                         .build()
                 )
-                .build()
+
+            notificationDTO.type?.let { type ->
+                messageBuilder.putData("type", type)
+            }
+
+            messageBuilder.putData("message", notificationDTO.body)
+            messageBuilder.putData("title", notificationDTO.title)
+
+            val message = messageBuilder.build()
 
             val response = FirebaseMessaging.getInstance().send(message)
 
