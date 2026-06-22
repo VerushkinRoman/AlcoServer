@@ -3,6 +3,8 @@ package ru.alcoserver.services
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
+import com.google.firebase.messaging.AndroidConfig
+import com.google.firebase.messaging.AndroidNotification
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.Message
 import com.google.firebase.messaging.Notification
@@ -65,9 +67,9 @@ class FirebaseService {
 
     fun sendNotification(notificationDTO: NotificationDTO): NotificationResponse {
         return try {
-            logger.info("Sending notification to token: ${notificationDTO.token.take(20)}...")
+            val channelId = notificationDTO.type ?: "default_channel"
 
-            val messageBuilder = Message.builder()
+            val message = Message.builder()
                 .setToken(notificationDTO.token)
                 .setNotification(
                     Notification.builder()
@@ -75,15 +77,19 @@ class FirebaseService {
                         .setBody(notificationDTO.body)
                         .build()
                 )
-
-            notificationDTO.type?.let { type ->
-                messageBuilder.putData("type", type)
-            }
-
-            messageBuilder.putData("message", notificationDTO.body)
-            messageBuilder.putData("title", notificationDTO.title)
-
-            val message = messageBuilder.build()
+                .setAndroidConfig(
+                    AndroidConfig.builder()
+                        .setNotification(
+                            AndroidNotification.builder()
+                                .setChannelId(channelId)
+                                .build()
+                        )
+                        .build()
+                )
+                .putData("type", notificationDTO.type ?: "default")
+                .putData("message", notificationDTO.body)
+                .putData("title", notificationDTO.title)
+                .build()
 
             val response = FirebaseMessaging.getInstance().send(message)
 
