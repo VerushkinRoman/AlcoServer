@@ -28,7 +28,7 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 @Serializable
-data class OpenRouterRequest(
+data class ChatRequest(
     val model: String,
     val messages: List<ChatMessage>,
     val stream: Boolean = false,
@@ -41,7 +41,7 @@ data class ChatMessage(
 )
 
 @Serializable
-data class OpenRouterResponse(
+data class ChatResponse(
     val choices: List<Choice>? = null,
     val error: ErrorResponse? = null
 )
@@ -71,20 +71,27 @@ class AdviceService(
 
     private val models = listOf(
         "nvidia/nemotron-3-super-120b-a12b:free",
-        "nvidia/nemotron-3-ultra-550b-a55b:free",
-        "nvidia/nemotron-3-nano-30b-a3b:free",
-        "nvidia/nemotron-3-nano-omni:free",
-        "nvidia/nemotron-nano-9b-v2:free",
-        "nvidia/nemotron-nano-12b-2-vl:free",
-        "openai/gpt-oss-120b:free",
         "google/gemma-4-31b-it:free",
         "google/gemma-4-26b-a4b-it:free",
-        "openrouter/owl-alpha",
+        "deepseek/deepseek-v4-flash:free",
+        "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+        "meta-llama/llama-3.2-3b-instruct:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "qwen/qwen3-coder:free",
+        "qwen/qwen3-next-80b-a3b-instruct:free",
+        "openai/gpt-oss-120b:free",
+        "openai/gpt-oss-20b:free",
+        "liquid/lfm-2.5-1.2b-thinking:free",
+        "liquid/lfm-2.5-1.2b-instruct:free",
+        "moonshotai/kimi-k2.6:free",
+        "nvidia/nemotron-3-nano-30b-a3b:free",
+        "nousresearch/hermes-3-llama-3.1-405b:free",
         "poolside/laguna-m.1:free",
         "poolside/laguna-xs.2:free",
         "z-ai/glm-4.5-air:free",
-        "openai/gpt-oss-20b:free",
-        "moonshotai/kimi-k2.6:free"
+        "tencent/hy3-preview:free",
+        "minimax/minimax-m2.5:free",
+        "arcee-ai/trinity-large-thinking:free"
     )
 
     private val systemPrompt = """
@@ -162,14 +169,14 @@ class AdviceService(
 
     private fun loadApiKey(): String {
         return try {
-            val propsFile = File("openrouter.properties")
+            val propsFile = File("keys.properties")
             if (propsFile.exists()) {
                 val props = Properties()
                 props.load(propsFile.inputStream())
                 props.getProperty("api.key") ?: throw IllegalStateException("API key not found")
             } else {
-                System.getenv("OPENROUTER_API_KEY") ?: throw IllegalStateException(
-                    "OpenRouter API key not found. Please create openrouter.properties file or set OPENROUTER_API_KEY environment variable"
+                System.getenv("KODIK_API_KEY") ?: throw IllegalStateException(
+                    "KodikRouter API key not found. Please create keys.properties file or set KODIK_API_KEY environment variable"
                 )
             }
         } catch (e: Exception) {
@@ -211,7 +218,7 @@ class AdviceService(
         for (model in models) {
             try {
                 logger.info("Trying model: $model for locale: $locale")
-                val response = callOpenRouter(model, systemPrompt, userPrompt)
+                val response = callKodikRouter(model, systemPrompt, userPrompt)
                 logger.info("Successfully got response from model: $model")
                 return response
             } catch (e: Exception) {
@@ -229,7 +236,7 @@ class AdviceService(
         return notificationTitles[locale] ?: notificationTitles[AppLocale.Rus]!!
     }
 
-    private suspend fun callOpenRouter(
+    private suspend fun callKodikRouter(
         model: String,
         systemPrompt: String,
         userPrompt: String
@@ -239,7 +246,7 @@ class AdviceService(
             ChatMessage(role = "user", content = userPrompt)
         )
 
-        val request = OpenRouterRequest(
+        val request = ChatRequest(
             model = model,
             messages = messages
         )
@@ -263,13 +270,13 @@ class AdviceService(
         return withContext(Dispatchers.IO) {
             client.use { httpClient ->
                 val responseBody: String =
-                    httpClient.post("https://openrouter.ai/api/v1/chat/completions") {
+                    httpClient.post("https://api.kodikrouter.ru/v1/chat/completions") {
                         header(HttpHeaders.Authorization, "Bearer $apiKey")
                         contentType(ContentType.Application.Json)
                         setBody(request)
                     }.body()
 
-                val jsonResponse = json.decodeFromString<OpenRouterResponse>(responseBody)
+                val jsonResponse = json.decodeFromString<ChatResponse>(responseBody)
 
                 jsonResponse.error?.let {
                     throw Exception("API Error: ${it.message}")

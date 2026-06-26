@@ -46,4 +46,4 @@ google-services.json
 /firebase.json
 /skills-lock.json
 /export_project_without_git.ps1
-/openrouter.properties
+/keys.properties
