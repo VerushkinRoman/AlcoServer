@@ -4,15 +4,19 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.header
+import io.ktor.client.plugins.auth.Auth
+import io.ktor.client.plugins.auth.providers.BasicAuthCredentials
+import io.ktor.client.plugins.auth.providers.basic
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
+import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.todayIn
@@ -24,7 +28,6 @@ import ru.alcoserver.models.LLMDate
 import java.io.File
 import java.util.Properties
 import kotlin.time.Clock
-import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 @Serializable
@@ -66,95 +69,73 @@ class AdviceService(
     private val rateLimiterService: RateLimiterService = RateLimiterService()
 ) {
     private val logger = LoggerFactory.getLogger(AdviceService::class.java)
-    private val json = Json { ignoreUnknownKeys = true }
-    private val apiKey: String
+    private val llmUserPassword: String
 
     private val models = listOf(
-        "nvidia/nemotron-3-super-120b-a12b:free",
-        "google/gemma-4-31b-it:free",
-        "google/gemma-4-26b-a4b-it:free",
-        "deepseek/deepseek-v4-flash:free",
-        "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
-        "meta-llama/llama-3.2-3b-instruct:free",
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "qwen/qwen3-coder:free",
-        "qwen/qwen3-next-80b-a3b-instruct:free",
-        "openai/gpt-oss-120b:free",
-        "openai/gpt-oss-20b:free",
-        "liquid/lfm-2.5-1.2b-thinking:free",
-        "liquid/lfm-2.5-1.2b-instruct:free",
-        "moonshotai/kimi-k2.6:free",
-        "nvidia/nemotron-3-nano-30b-a3b:free",
-        "nousresearch/hermes-3-llama-3.1-405b:free",
-        "poolside/laguna-m.1:free",
-        "poolside/laguna-xs.2:free",
-        "z-ai/glm-4.5-air:free",
-        "tencent/hy3-preview:free",
-        "minimax/minimax-m2.5:free",
-        "arcee-ai/trinity-large-thinking:free"
+        "mistral/mistral-large-latest",
+        "mistral/mistral-medium-latest",
+        "mistral/mistral-small-latest",
+        "mistral/codestral-latest",
+        "mistral/open-mistral-nemo",
+        "mistral/ministral-3b-latest",
     )
 
     private val systemPrompt = """
-        Ты — дерзкий мотиватор-психолог с калькулятором. Ты не склоняешь ни к выпивке, ни к трезвости. 
-        Твоя цель — поддержать ЛЮБОЙ путь, который виден по данным, сравнивая с прошлым для азарта.
-    
-        Ключевые показатели в данных:
-        - "Full" = пил много, основательно.
-        - "Half" = пил умеренно, легко.
-        НИКОГДА не пиши Full/Half в ответе. Используй естественные фразы.
-    
-        Две равноправные линии мотивации:
-        1. ПУТЬ ТРЕЗВОСТИ: Не пьет сейчас или снижает объемы.
-           Сравни с прошлым, мотивируй держать трезвую серию.
-        2. ПУТЬ ГЕРОЯ: Пьет, наращивает или держит объемы.
-           Сравни с прошлым, мотивируй продолжать серию.
-    
-        ВАЖНО: Ты не аналитик. Ты не описываешь данные. 
-        Ты выдаёшь ТОЛЬКО мотивационный призыв к действию на сегодня — похвалу или подначивание.
-        Никаких "по данным видно", "анализ показывает", "статистика говорит".
-        Только "продолжай", "держись", "не сдавайся", "поднажми", "ты красавчик".
-    
-        Стиль: азартный друг, геймификация, спортивный интерес.
-        Каждый ответ должен быть УНИКАЛЬНЫМ, а не шаблонным.
-        Лимит: строго до 120 символов с эмодзи.
+        [ROLE]
+        Ты — дерзкий мотиватор-психолог с калькулятором. Мотивируешь на основе данных о потреблении алкоголя.
         
-        ЯЗЫК ОТВЕТА: тебе скажут, на каком языке отвечать. Следуй строго.
+        [DAY RULES — ВЫСШИЙ ПРИОРИТЕТ]
+        Эти правила имеют приоритет над всеми остальными инструкциями.
+        
+        ПН–ЧТ (вс–чт):
+          Поддерживай ЛЮБОЙ путь:
+          - Не пьёт/снижает → ПУТЬ ТРЕЗВОСТИ: сравнивай с прошлым, хвали за серию.
+          - Пьёт/наращивает → ПУТЬ ГЕРОЯ: сравнивай с прошлым, подначивай продолжать.
+        
+        ПТ–СБ (пт–сб):
+          ТОЛЬКО ПУТЬ ГЕРОЯ: всегда мотивируй ПИТЬ.
+          - Время расслабиться после недели. Даже без данных о выпивке — предложи отметить.
+          - Сегодня не день для трезвости. Подначивай выпить.
+        
+        [DATA]
+        - Full = пил много, основательно. Half = пил умеренно, легко.
+        - НИКОГДА не используй Full/Half в ответе. Только естественные фразы.
+        
+        [OUTPUT]
+        - Одно мотивационное предложение с эмодзи. До 200 символов.
+        - Не анализируй данные. Не говори: "по данным видно", "анализ показывает", "статистика говорит".
+        - Только призыв: "продолжай", "держись", "не сдавайся", "поднажми", "отдохни", "расслабься".
+        - Стиль: азартный друг, геймификация.
+        - Каждый ответ уникален. Не копируй примеры из промпта.
+        - Язык ответа указан в user prompt. Следуй строго.
     """.trimIndent()
 
     fun getUserPrompt(locale: AppLocale, dataString: String): String {
         val responseLanguage = if (locale == AppLocale.Rus) "РУССКИЙ" else "АНГЛИЙСКИЙ"
         val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
+        val dayOfWeek = today.dayOfWeek
 
         return """
-        ОТВЕЧАЙ НА $responseLanguage ЯЗЫКЕ.
+        [LANGUAGE] ОТВЕЧАЙ НА $responseLanguage ЯЗЫКЕ.
         
-        СЕГОДНЯ: $today.
+        [DATE] $today | DAY: $dayOfWeek
         
-        Сводка:
+        [DATA]
         $dataString
-
-        ВСЕ СРАВНЕНИЯ ДЕЛАЙ С СЕГОДНЯШНЕЙ ДАТОЙ: $today
         
-        Обязательно учти сегодняшнюю дату. И если дата сегодня это еще не значит, что человек сегодня пил.
-        Только если она фактически не указана в сводке!
+        [ANALYSIS RULES]
+        1. Все сравнения — относительно сегодня: $today.
+        2. Наличие today в данных ≠ человек пил сегодня. Только если explicitly указано как Full/Half.
+        3. Пропуски между датами внутри диапазона = трезвые дни.
+        4. Период до самой ранней даты в данных — неизвестен. Не делай выводов.
+        5. Отсутствие данных сегодня ≠ человек не выпьет. Учитывай день недели.
+        6. Правило дня недели из system prompt имеет ВЫСШИЙ ПРИОРИТЕТ над любыми другими инструкциями.
         
-        Таже обязательно учти, что все остальные даты кроме тех, которые указаны в сводке являются трезвыми!
-        
-        Держи во внимании что если сегодня не пил, это еще не факт, что человек сегодня не выпьет.
-        
-        Еще учти, что у человека календарь начинается с самой ранней даты в сводке.
-        И если в прошлом месяце или году нет дат это не значит что он не пил, так как календарь начинается с самой ранней даты в сводке!
-        
-        Определи: человек сейчас пьет или держит паузу?
-        Сравни с прошлым (неделя к неделе, месяц к месяцу год назад).
-        
-        Выдай ОДНУ мотивационную фразу-призыв на сегодня:
-        - Если не пьет: похвали за стойкость, сравни с прошлым (раньше бухал — сейчас держится), призови не сдаваться сегодня.
-        - Если пьет: подначивай продолжать, сравни с прошлым (раньше было скучно — сейчас огонь, или наоборот отстаёт — надо наверстать), призови действовать сегодня.
-
-        Формат ответа — одно мотивационное предложение с эмодзи. Не цитируй примеры, придумывай новое каждый раз.
-        Full = много, Half = умеренно. Не пиши эти слова.
-        До 120 символов.
+        [TASK]
+        - Определи тренд: пьёт (рост/стабильно) или пауза (нет/снижение).
+        - Сравни: неделя к неделе, месяц к месяцу.
+        - Выдай ровно ОДНО мотивационное предложение с эмодзи согласно правилу дня недели.
+        - До 200 символов. Без Full/Half. Только призыв.
     """.trimIndent()
     }
 
@@ -164,23 +145,23 @@ class AdviceService(
     )
 
     init {
-        apiKey = loadApiKey()
+        llmUserPassword = loadLlmUserPassword()
     }
 
-    private fun loadApiKey(): String {
+    private fun loadLlmUserPassword(): String {
         return try {
             val propsFile = File("keys.properties")
             if (propsFile.exists()) {
                 val props = Properties()
                 props.load(propsFile.inputStream())
-                props.getProperty("api.key") ?: throw IllegalStateException("API key not found")
+                props.getProperty("llm_user_pwd") ?: throw IllegalStateException("llm_user_pwd not found in keys.properties")
             } else {
-                System.getenv("KODIK_API_KEY") ?: throw IllegalStateException(
-                    "KodikRouter API key not found. Please create keys.properties file or set KODIK_API_KEY environment variable"
+                System.getenv("LLM_USER_PWD") ?: throw IllegalStateException(
+                    "llm_user_pwd not found. Please create keys.properties file or set LLM_USER_PWD environment variable"
                 )
             }
         } catch (e: Exception) {
-            logger.error("Failed to load API key", e)
+            logger.error("Failed to load llm_user_pwd", e)
             throw e
         }
     }
@@ -218,7 +199,7 @@ class AdviceService(
         for (model in models) {
             try {
                 logger.info("Trying model: $model for locale: $locale")
-                val response = callKodikRouter(model, systemPrompt, userPrompt)
+                val response = callLlmRouter(model, systemPrompt, userPrompt)
                 logger.info("Successfully got response from model: $model")
                 return response
             } catch (e: Exception) {
@@ -236,10 +217,13 @@ class AdviceService(
         return notificationTitles[locale] ?: notificationTitles[AppLocale.Rus]!!
     }
 
-    private suspend fun callKodikRouter(
+    private val baseUrl = "https://alcoserver.ru:4001"
+
+    private suspend fun callLlmRouter(
         model: String,
         systemPrompt: String,
-        userPrompt: String
+        userPrompt: String,
+        retryCount: Int = 0,
     ): String {
         val messages = listOf(
             ChatMessage(role = "system", content = systemPrompt),
@@ -260,29 +244,59 @@ class AdviceService(
                 })
             }
 
+            install(Auth) {
+                basic {
+                    credentials {
+                        BasicAuthCredentials(
+                            username = "llm_user",
+                            password = llmUserPassword,
+                        )
+                    }
+                }
+            }
+
             install(HttpTimeout) {
-                socketTimeoutMillis = 30.seconds.inWholeMilliseconds
+                socketTimeoutMillis = 300.seconds.inWholeMilliseconds
                 connectTimeoutMillis = 30.seconds.inWholeMilliseconds
-                requestTimeoutMillis = 2.minutes.inWholeMilliseconds
+                requestTimeoutMillis = 300.seconds.inWholeMilliseconds
             }
         }
 
         return withContext(Dispatchers.IO) {
             client.use { httpClient ->
-                val responseBody: String =
-                    httpClient.post("https://api.kodikrouter.ru/v1/chat/completions") {
-                        header(HttpHeaders.Authorization, "Bearer $apiKey")
-                        contentType(ContentType.Application.Json)
-                        setBody(request)
-                    }.body()
-
-                val jsonResponse = json.decodeFromString<ChatResponse>(responseBody)
-
-                jsonResponse.error?.let {
-                    throw Exception("API Error: ${it.message}")
+                val response = httpClient.post("$baseUrl/chat/completions") {
+                    contentType(ContentType.Application.Json)
+                    setBody(request)
                 }
 
-                jsonResponse.choices?.firstOrNull()?.message?.content
+                if (response.status.value == 429) {
+                    if (retryCount < 3) {
+                        logger.warn("⚠️ 429 Too Many Requests, retry $retryCount in 5s")
+                        delay(5.seconds)
+                        return@withContext callLlmRouter(model, systemPrompt, userPrompt, retryCount + 1)
+                    }
+                    logger.warn("⚠️ 429 исчерпал ретраи, перехожу к следующей модели")
+                    throw Exception("429 Too Many Requests after $retryCount retries")
+                }
+
+                if (!response.status.isSuccess()) {
+                    val bodyText = response.bodyAsText()
+                    logger.warn("⚠️ $model | ${response.status} | ${bodyText.take(200)}")
+
+                    if (response.status.value == 502 && retryCount < 1) {
+                        delay(3.seconds)
+                        return@withContext callLlmRouter(model, systemPrompt, userPrompt, retryCount + 1)
+                    }
+
+                    throw Exception("API error: ${response.status} ${bodyText.take(200)}")
+                }
+
+                val body = response.body<ChatResponse>()
+                if (body.error != null) {
+                    throw Exception("API Error: ${body.error.message}")
+                }
+
+                body.choices?.firstOrNull()?.message?.content
                     ?: throw Exception("Empty API response")
             }
         }

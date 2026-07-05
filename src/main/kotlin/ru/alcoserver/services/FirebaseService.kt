@@ -70,7 +70,7 @@ class FirebaseService {
             val channelId = notificationDTO.type ?: "default_channel"
 
             val message = Message.builder()
-                .setToken(notificationDTO.token)
+                .setFid(notificationDTO.token)
                 .setNotification(
                     Notification.builder()
                         .setTitle(notificationDTO.title)
