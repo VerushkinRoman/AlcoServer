@@ -138,14 +138,18 @@ fun Route.adviceRoute(
                         scope.launch {
                             try {
                                 val advice = deferredAdvice.await()
-                                val title = adviceService.getNotificationTitle(locale)
-                                sendNotification(
-                                    firebaseService,
-                                    request.token,
-                                    title,
-                                    advice,
-                                    logger
-                                )
+                                if (advice != null) {
+                                    val title = adviceService.getNotificationTitle(locale)
+                                    sendNotification(
+                                        firebaseService,
+                                        request.token,
+                                        title,
+                                        advice,
+                                        logger
+                                    )
+                                } else {
+                                    logger.info("Advice is null (not sober or prompts disabled), skipping notification")
+                                }
 
                                 val processingTime = System.currentTimeMillis() - startTime
                                 requestLogger.logRequest(
@@ -191,14 +195,18 @@ fun Route.adviceRoute(
                             try {
                                 logger.info("Waiting for queued advice generation: ${rateLimitResult.requestId}")
                                 val advice = deferredAdvice.await()
-                                val title = adviceService.getNotificationTitle(locale)
-                                sendNotification(
-                                    firebaseService,
-                                    request.token,
-                                    title,
-                                    advice,
-                                    logger
-                                )
+                                if (advice != null) {
+                                    val title = adviceService.getNotificationTitle(locale)
+                                    sendNotification(
+                                        firebaseService,
+                                        request.token,
+                                        title,
+                                        advice,
+                                        logger
+                                    )
+                                } else {
+                                    logger.info("Advice is null (not sober or prompts disabled), skipping notification")
+                                }
 
                                 val processingTime = System.currentTimeMillis() - startTime
                                 requestLogger.logRequest(

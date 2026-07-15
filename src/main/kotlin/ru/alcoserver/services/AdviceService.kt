@@ -18,12 +18,18 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.minus
 import kotlinx.datetime.todayIn
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.serializer
 import org.slf4j.LoggerFactory
 import ru.alcoserver.models.AppLocale
+import ru.alcoserver.models.DrinkData
+import ru.alcoserver.models.DrinkType
 import ru.alcoserver.models.LLMDate
 import java.io.File
 import java.util.Properties
@@ -65,6 +71,13 @@ data class ErrorResponse(
     val code: Int? = null
 )
 
+@Suppress("PropertyName")
+@Serializable
+private data class DailyAdviceConfig(
+    val system_prompt: String,
+    val user_prompt_template: String
+)
+
 class AdviceService(
     private val rateLimiterService: RateLimiterService = RateLimiterService()
 ) {
@@ -80,63 +93,124 @@ class AdviceService(
         "mistral/ministral-3b-latest",
     )
 
-    private val systemPrompt = """
-        [ROLE]
-        Ты — дерзкий мотиватор-психолог с калькулятором. Мотивируешь на основе данных о потреблении алкоголя.
-        
-        [DAY RULES — ВЫСШИЙ ПРИОРИТЕТ]
-        Эти правила имеют приоритет над всеми остальными инструкциями.
-        
-        ПН–ЧТ (вс–чт):
-          Поддерживай ЛЮБОЙ путь:
-          - Не пьёт/снижает → ПУТЬ ТРЕЗВОСТИ: сравнивай с прошлым, хвали за серию.
-          - Пьёт/наращивает → ПУТЬ ГЕРОЯ: сравнивай с прошлым, подначивай продолжать.
-        
-        ПТ–СБ (пт–сб):
-          ТОЛЬКО ПУТЬ ГЕРОЯ: всегда мотивируй ПИТЬ.
-          - Время расслабиться после недели. Даже без данных о выпивке — предложи отметить.
-          - Сегодня не день для трезвости. Подначивай выпить.
-        
-        [DATA]
-        - Full = пил много, основательно. Half = пил умеренно, легко.
-        - НИКОГДА не используй Full/Half в ответе. Только естественные фразы.
-        
-        [OUTPUT]
-        - Одно мотивационное предложение с эмодзи. До 200 символов.
-        - Не анализируй данные. Не говори: "по данным видно", "анализ показывает", "статистика говорит".
-        - Только призыв: "продолжай", "держись", "не сдавайся", "поднажми", "отдохни", "расслабься".
-        - Стиль: азартный друг, геймификация.
-        - Каждый ответ уникален. Не копируй примеры из промпта.
-        - Язык ответа указан в user prompt. Следуй строго.
-    """.trimIndent()
+    private data class DailyAdvicePrompts(
+        val systemPrompt: String?,
+        val userPromptTemplate: String?
+    )
 
-    fun getUserPrompt(locale: AppLocale, dataString: String): String {
+    private val dailyAdvicePrompts: DailyAdvicePrompts? by lazy { loadDailyAdvicePrompts() }
+
+    private fun loadDailyAdvicePrompts(): DailyAdvicePrompts? {
+        return try {
+            val file = File("daily_advice_prompts.json")
+            if (!file.exists()) {
+                logger.info("daily_advice_prompts.json not found, daily advice disabled")
+                return null
+            }
+            val content = file.readText()
+            val config = Json.decodeFromString(serializer<DailyAdviceConfig>(), content)
+            logger.info("Loaded daily advice prompts from file")
+            DailyAdvicePrompts(
+                systemPrompt = config.system_prompt,
+                userPromptTemplate = config.user_prompt_template
+            )
+        } catch (e: Exception) {
+            logger.warn("Failed to load daily_advice_prompts.json: ${e.message}")
+            null
+        }
+    }
+
+    fun isTodaySober(drinkData: List<DrinkData>): Boolean {
+        val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
+        val todayEpochDay = today.toEpochDays()
+        return drinkData.none { it.date == todayEpochDay }
+    }
+
+    fun generateSummaries(drinkData: List<DrinkData>, locale: AppLocale): String {
+        val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
+        val yesterday = today.minus(1, DateTimeUnit.DAY)
+        val weekAgo = today.minus(7, DateTimeUnit.DAY)
+        val monthAgo = today.minus(30, DateTimeUnit.DAY)
+
+        val isRus = locale == AppLocale.Rus
+
+        val yesterdayData = drinkData.filter { it.date == yesterday.toEpochDays() }
+        val weekData = drinkData.filter {
+            val date = it.date
+            date > weekAgo.toEpochDays() && date < today.toEpochDays()
+        }
+        val monthData = drinkData.filter {
+            val date = it.date
+            date > monthAgo.toEpochDays() && date < today.toEpochDays()
+        }
+
+        val summaries = mutableListOf<String>()
+
+        if (yesterdayData.isNotEmpty()) {
+            val drinkTypes = yesterdayData.map { DrinkType.fromString(it.drinkType) }
+            val hasFull = drinkTypes.any { it == DrinkType.Full }
+            val hasHalf = drinkTypes.any { it == DrinkType.Half }
+            val desc = when {
+                hasFull && hasHalf -> if (isRus) "пили основательно" else "drank heavily"
+                hasFull -> if (isRus) "пили много" else "drank a lot"
+                else -> if (isRus) "пили умеренно" else "drank moderately"
+            }
+            summaries.add(if (isRus) "Вчера вы $desc." else "Yesterday you $desc.")
+        } else {
+            summaries.add(if (isRus) "Вчера вы были трезвы." else "Yesterday you were sober.")
+        }
+
+        val weekDrinkCount = weekData.size
+        val weekDays = 7
+        val weekSoberDays = weekDays - weekDrinkCount
+        if (weekDrinkCount > 0) {
+            summaries.add(
+                if (isRus) "На прошлой неделе вы пили $weekDrinkCount из $weekDays дней, трезвых: $weekSoberDays."
+                else "Last week you drank $weekDrinkCount out of $weekDays days, sober: $weekSoberDays."
+            )
+        } else {
+            summaries.add(
+                if (isRus) "На прошлой неделе вы были трезвы все $weekDays дней!"
+                else "Last week you were sober all $weekDays days!"
+            )
+        }
+
+        val monthDrinkCount = monthData.size
+        val monthDays = 30
+        val monthSoberDays = monthDays - monthDrinkCount
+        if (monthDrinkCount > 0) {
+            summaries.add(
+                if (isRus) "За месяц: выпивали $monthDrinkCount раз, трезвых дней — $monthSoberDays."
+                else "This month: drank $monthDrinkCount times, sober days — $monthSoberDays."
+            )
+        } else {
+            summaries.add(
+                if (isRus) "За месяц вы были трезвы все $monthDays дней!"
+                else "This month you were sober all $monthDays days!"
+            )
+        }
+
+        return summaries.joinToString(" ")
+    }
+
+    fun getUserPrompt(
+        locale: AppLocale,
+        dataString: String,
+        summaries: String
+    ): String {
         val responseLanguage = if (locale == AppLocale.Rus) "РУССКИЙ" else "АНГЛИЙСКИЙ"
         val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
         val dayOfWeek = today.dayOfWeek
 
-        return """
-        [LANGUAGE] ОТВЕЧАЙ НА $responseLanguage ЯЗЫКЕ.
-        
-        [DATE] $today | DAY: $dayOfWeek
-        
-        [DATA]
-        $dataString
-        
-        [ANALYSIS RULES]
-        1. Все сравнения — относительно сегодня: $today.
-        2. Наличие today в данных ≠ человек пил сегодня. Только если explicitly указано как Full/Half.
-        3. Пропуски между датами внутри диапазона = трезвые дни.
-        4. Период до самой ранней даты в данных — неизвестен. Не делай выводов.
-        5. Отсутствие данных сегодня ≠ человек не выпьет. Учитывай день недели.
-        6. Правило дня недели из system prompt имеет ВЫСШИЙ ПРИОРИТЕТ над любыми другими инструкциями.
-        
-        [TASK]
-        - Определи тренд: пьёт (рост/стабильно) или пауза (нет/снижение).
-        - Сравни: неделя к неделе, месяц к месяцу.
-        - Выдай ровно ОДНО мотивационное предложение с эмодзи согласно правилу дня недели.
-        - До 200 символов. Без Full/Half. Только призыв.
-    """.trimIndent()
+        val template = dailyAdvicePrompts?.userPromptTemplate
+            ?: return "[NO TEMPLATE]"
+
+        return template
+            .replace("{response_language}", responseLanguage)
+            .replace("{today}", today.toString())
+            .replace("{day_of_week}", dayOfWeek.toString())
+            .replace("{data_string}", dataString)
+            .replace("{summaries}", summaries)
     }
 
     private val notificationTitles = mapOf(
@@ -169,8 +243,8 @@ class AdviceService(
     suspend fun generateAdviceWithRateLimit(
         llmDates: List<LLMDate>,
         locale: AppLocale
-    ): Pair<RateLimitResult, CompletableDeferred<String>> {
-        val deferred = CompletableDeferred<String>()
+    ): Pair<RateLimitResult, CompletableDeferred<String?>> {
+        val deferred = CompletableDeferred<String?>()
 
         val result =
             rateLimiterService.executeWithRateLimit(Pair(llmDates, locale)) { (dates, loc) ->
@@ -191,15 +265,35 @@ class AdviceService(
 
     suspend fun generateAdvice(
         drinkData: List<LLMDate>,
-        locale: AppLocale = AppLocale.Rus
-    ): String {
+        locale: AppLocale = AppLocale.Rus,
+        drinkDataRaw: List<DrinkData>? = null
+    ): String? {
+        val prompts = dailyAdvicePrompts
+        if (prompts?.systemPrompt == null || prompts.userPromptTemplate == null) {
+            logger.info("Daily advice prompts not loaded, skipping advice generation")
+            return null
+        }
+
+        val rawData = drinkDataRaw ?: drinkData.map { drink ->
+            DrinkData(
+                date = LocalDate.parse(drink.date).toEpochDays(),
+                drinkType = drink.drinkType.value
+            )
+        }
+
+        if (!isTodaySober(rawData)) {
+            logger.info("Today is not sober, skipping daily advice")
+            return null
+        }
+
         val dataString = drinkData.joinToString("\n") { it.toString() }
-        val userPrompt = getUserPrompt(locale, dataString)
+        val summaries = generateSummaries(rawData, locale)
+        val userPrompt = getUserPrompt(locale, dataString, summaries)
 
         for (model in models) {
             try {
                 logger.info("Trying model: $model for locale: $locale")
-                val response = callLlmRouter(model, systemPrompt, userPrompt)
+                val response = callLlmRouter(model, prompts.systemPrompt, userPrompt)
                 logger.info("Successfully got response from model: $model")
                 return response
             } catch (e: Exception) {

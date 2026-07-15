@@ -1,10 +1,10 @@
 [versions]
-kotlin = "2.4.0"
+kotlin = "2.4.10"
 firebaseAdmin = "9.10.0"
 kotlinxSerializationJson = "1.11.0"
 ktor = "3.5.1"
 shadow = "9.4.1"
-logbackClassic = "1.5.37"
+logbackClassic = "1.5.38"
 playIntegrity = "v1-rev20250828-2.0.0"
 dateTime = "0.8.0"
 
