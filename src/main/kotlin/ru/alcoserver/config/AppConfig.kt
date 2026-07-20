@@ -14,6 +14,10 @@ object AppConfig {
 
     val cloudProjectNumber: Long = config.getLong("google.cloud.project-number")
 
+    val yookassaShopId: String = config.getString("yookassa.shop-id")
+    val yookassaSecretKey: String = config.getString("yookassa.secret-key")
+    val yookassaClientPublicKey: String = config.getString("yookassa.client-public-key")
+
     private fun resolveFirebaseConfigPath(): String {
         val envPath = System.getenv("FIREBASE_CONFIG_PATH")
         if (envPath != null && File(envPath).exists()) {

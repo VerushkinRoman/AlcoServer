@@ -17,11 +17,18 @@ import io.ktor.server.routing.routing
 import org.slf4j.LoggerFactory
 import org.slf4j.event.Level
 import ru.alcoserver.config.AppConfig
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.json.Json
 import ru.alcoserver.routes.adviceRoute
+import ru.alcoserver.routes.donateRoute
 import ru.alcoserver.routes.healthRoute
 import ru.alcoserver.routes.integrityRoute
 import ru.alcoserver.routes.notificationRoute
 import ru.alcoserver.services.AdviceService
+import ru.alcoserver.services.DonateService
 import ru.alcoserver.services.FirebaseService
 import ru.alcoserver.services.IntegrityService
 import ru.alcoserver.services.RateLimiterService
@@ -45,6 +52,15 @@ fun Application.configureServer() {
     val rateLimiterService = RateLimiterService(maxRequestsPerMinute = 20)
     val requestLogger = RequestLoggerService()
     val adviceService = AdviceService(rateLimiterService)
+    val httpClient = HttpClient(CIO) {
+        install(ContentNegotiation) {
+            json(Json {
+                ignoreUnknownKeys = true
+                encodeDefaults = true
+            })
+        }
+    }
+    val donateService = DonateService(httpClient)
 
     install(ContentNegotiation) {
         json()
@@ -72,10 +88,12 @@ fun Application.configureServer() {
         integrityRoute(integrityService)
         notificationRoute(firebaseService)
         adviceRoute(adviceService, firebaseService, requestLogger)
+        donateRoute(donateService)
     }
 
     monitor.subscribe(ApplicationStopped) {
         logger.info("Application stopped")
+        httpClient.close()
         adviceService.shutdown()
         requestLogger.shutdown()
     }
