@@ -8,7 +8,6 @@ import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.calllogging.CallLogging
-import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.forwardedheaders.XForwardedHeaders
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.path
@@ -19,8 +18,6 @@ import org.slf4j.event.Level
 import ru.alcoserver.config.AppConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 import ru.alcoserver.routes.adviceRoute
 import ru.alcoserver.routes.donateRoute
@@ -53,7 +50,7 @@ fun Application.configureServer() {
     val requestLogger = RequestLoggerService()
     val adviceService = AdviceService(rateLimiterService)
     val httpClient = HttpClient(CIO) {
-        install(ContentNegotiation) {
+        install(io.ktor.client.plugins.contentnegotiation.ContentNegotiation) {
             json(Json {
                 ignoreUnknownKeys = true
                 encodeDefaults = true
@@ -62,8 +59,11 @@ fun Application.configureServer() {
     }
     val donateService = DonateService(httpClient)
 
-    install(ContentNegotiation) {
-        json()
+    install(io.ktor.server.plugins.contentnegotiation.ContentNegotiation) {
+        json(Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        })
     }
 
     install(XForwardedHeaders)
