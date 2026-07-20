@@ -2,8 +2,8 @@
 config/firebase-service-account.json
 *.json.key
 
-# Application config (содержит секретные ключи API!)
-src/main/resources/application.conf
+# Local secrets (не коммитить!)
+application.local.conf
 
 # Gradle
 .gradle/
