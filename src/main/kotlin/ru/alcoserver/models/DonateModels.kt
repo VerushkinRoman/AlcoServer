@@ -22,6 +22,21 @@ data class DonateResponse(
 )
 
 @Serializable
+data class DonateVerifyRequest(
+    @SerialName("payment_id") val paymentId: String,
+    val amount: String,
+    val userId: String? = null,
+)
+
+@Serializable
+data class DonateVerifyResponse(
+    val success: Boolean,
+    val paid: Boolean,
+    val status: String,
+    @SerialName("total_donations") val totalDonations: Double = 0.0,
+)
+
+@Serializable
 data class DonateConfigResponse(
     @SerialName("client_public_key") val clientPublicKey: String,
     @SerialName("shop_id") val shopId: String,
