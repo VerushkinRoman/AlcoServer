@@ -60,6 +60,7 @@ private const val ADVICE_ROUTE = "/advice"
 private const val STATS_PATH = "/stats"
 private const val LOGS_PATH = "/logs"
 
+@Suppress("LoggingSimilarMessage")
 fun Route.adviceRoute(
     adviceService: AdviceService,
     firebaseService: FirebaseService,
@@ -368,7 +369,7 @@ private fun sendNotification(
             type = NotificationType.ADVICE.value,
         )
 
-        val result = firebaseService.sendNotification(notificationDTO)
+        val result = firebaseService.sendNotification(notificationDTO, dataOnly = true)
 
         if (result.success) {
             logger.info("Notification sent successfully to token: ${token.take(10)}...")

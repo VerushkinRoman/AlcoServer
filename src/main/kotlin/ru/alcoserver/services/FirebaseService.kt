@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory
 import ru.alcoserver.config.AppConfig
 import ru.alcoserver.models.NotificationDTO
 import ru.alcoserver.models.NotificationResponse
+import ru.alcoserver.models.NotificationType
 import java.io.FileInputStream
 import java.io.FileNotFoundException
 import java.nio.file.Paths
@@ -65,31 +66,38 @@ class FirebaseService {
         }
     }
 
-    fun sendNotification(notificationDTO: NotificationDTO): NotificationResponse {
+    fun sendNotification(notificationDTO: NotificationDTO, dataOnly: Boolean = false): NotificationResponse {
         return try {
-            val channelId = notificationDTO.type ?: "default_channel"
+            val requestedType = notificationDTO.type?.takeIf { it.isNotBlank() } ?: NotificationType.DEFAULT.value
+            val notificationType = NotificationType.entries
+                .find { it.value == requestedType }
+                ?: NotificationType.DEFAULT
 
-            val message = Message.builder()
+            val messageBuilder = Message.builder()
                 .setFid(notificationDTO.token)
-                .setNotification(
+                .putData("type", notificationType.value)
+                .putData("message", notificationDTO.body)
+                .putData("title", notificationDTO.title)
+
+            if (!dataOnly) {
+                messageBuilder.setNotification(
                     Notification.builder()
                         .setTitle(notificationDTO.title)
                         .setBody(notificationDTO.body)
                         .build()
                 )
-                .setAndroidConfig(
+                messageBuilder.setAndroidConfig(
                     AndroidConfig.builder()
                         .setNotification(
                             AndroidNotification.builder()
-                                .setChannelId(channelId)
+                                .setChannelId(notificationType.channelId)
                                 .build()
                         )
                         .build()
                 )
-                .putData("type", notificationDTO.type ?: "default")
-                .putData("message", notificationDTO.body)
-                .putData("title", notificationDTO.title)
-                .build()
+            }
+
+            val message = messageBuilder.build()
 
             val response = FirebaseMessaging.getInstance().send(message)
 

@@ -1,11 +1,22 @@
 package ru.alcoserver.config
 
+import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import java.io.File
 import java.nio.file.Paths
 
 object AppConfig {
-    private val config = ConfigFactory.load()
+    private val config: Config = loadConfig()
+
+    private fun loadConfig(): Config {
+        val base = ConfigFactory.load()
+        val localFile = File("application.local.conf")
+        return if (localFile.exists()) {
+            ConfigFactory.parseFile(localFile).withFallback(base).resolve()
+        } else {
+            base
+        }
+    }
 
     val serverPort: Int = config.getInt("ktor.deployment.port")
     val serverHost: String = config.getString("ktor.deployment.host")
