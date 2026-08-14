@@ -66,7 +66,11 @@ class FirebaseService {
         }
     }
 
-    fun sendNotification(notificationDTO: NotificationDTO, dataOnly: Boolean = false): NotificationResponse {
+    fun sendNotification(
+        notificationDTO: NotificationDTO,
+        dataOnly: Boolean = false,
+        data: Map<String, String> = emptyMap(),
+    ): NotificationResponse {
         return try {
             val requestedType = notificationDTO.type?.takeIf { it.isNotBlank() } ?: NotificationType.DEFAULT.value
             val notificationType = NotificationType.entries
@@ -78,6 +82,10 @@ class FirebaseService {
                 .putData("type", notificationType.value)
                 .putData("message", notificationDTO.body)
                 .putData("title", notificationDTO.title)
+
+            data.forEach { (key, value) ->
+                messageBuilder.putData(key, value)
+            }
 
             if (!dataOnly) {
                 messageBuilder.setNotification(

@@ -57,7 +57,7 @@ fun Application.configureServer() {
             })
         }
     }
-    val donateService = DonateService(httpClient)
+    val donateService = DonateService(httpClient, firebaseService)
 
     install(io.ktor.server.plugins.contentnegotiation.ContentNegotiation) {
         json(Json {
