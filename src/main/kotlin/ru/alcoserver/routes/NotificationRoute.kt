@@ -69,7 +69,17 @@ fun Route.notificationRoute(firebaseService: FirebaseService) {
                 val type = request.type ?: NotificationType.DEFAULT.value
                 logger.info("Sending notification: ${request.title} (type: $type)")
 
-                val result = firebaseService.sendNotification(request)
+                // "message_type" is a reserved key in the FCM v1 data payload
+                val extraData = mapOf(
+                    "msg_type" to request.messageType,
+                    "friend_email" to request.friendEmail,
+                    "date" to request.date,
+                    "drink_type" to request.drinkType,
+                ).mapNotNull { (key, value) ->
+                    if (value.isNullOrBlank()) null else key to value
+                }.toMap()
+
+                val result = firebaseService.sendNotification(request, data = extraData)
 
                 if (result.success) {
                     call.respond(

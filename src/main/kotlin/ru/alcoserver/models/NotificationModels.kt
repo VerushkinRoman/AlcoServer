@@ -7,7 +7,11 @@ data class NotificationDTO(
     val title: String,
     val body: String,
     val token: String,
-    val type: String? = null
+    val type: String? = null,
+    val messageType: String? = null,
+    val friendEmail: String? = null,
+    val date: String? = null,
+    val drinkType: String? = null,
 )
 
 @Serializable
