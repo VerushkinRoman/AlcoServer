@@ -39,11 +39,16 @@ dependencies {
 
     implementation(libs.firebase.admin)
 
+    implementation(libs.nimbus.jose.jwt)
+
     implementation(libs.logback.classic)
 
     implementation(libs.kotlinx.coroutines.core)
 
     implementation(libs.kotlinx.datetime)
+
+    testImplementation(kotlin("test"))
+    testImplementation(libs.ktor.server.test.host)
 }
 
 tasks.build {

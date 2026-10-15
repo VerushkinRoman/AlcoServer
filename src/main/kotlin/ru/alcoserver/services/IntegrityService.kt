@@ -13,14 +13,18 @@ import org.slf4j.LoggerFactory
 import ru.alcoserver.config.AppConfig
 import ru.alcoserver.models.IntegrityErrorMessage
 import ru.alcoserver.models.IntegrityInvalidReason
+import ru.alcoserver.models.IntegrityRequest
 import ru.alcoserver.models.IntegrityResult
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileNotFoundException
 
-class IntegrityService {
+class IntegrityService(
+    appCheckService: AppCheckService = AppCheckService(),
+) : IntegrityVerifier {
     private val logger = LoggerFactory.getLogger(IntegrityService::class.java)
     private val playIntegrity: PlayIntegrity
+    private val appAttestVerifier = AppAttestVerifier(appCheckService)
 
     init {
         playIntegrity = initializePlayIntegrity()
@@ -54,7 +58,15 @@ class IntegrityService {
         }
     }
 
-    suspend fun verifyToken(integrityToken: String): IntegrityResult {
+    override suspend fun verify(request: IntegrityRequest): IntegrityResult {
+        return when (request.platform?.trim()?.lowercase()) {
+            null, ANDROID_PLATFORM -> verifyPlayIntegrity(request.token)
+            IOS_PLATFORM -> appAttestVerifier.verify(request)
+            else -> IntegrityResult.Error(IntegrityErrorMessage.UnsupportedPlatform(request.platform))
+        }
+    }
+
+    private suspend fun verifyPlayIntegrity(integrityToken: String): IntegrityResult {
         return withContext(Dispatchers.IO) {
             try {
                 logger.info("Verifying integrity token with Google Play Integrity API")
@@ -150,5 +162,10 @@ class IntegrityService {
                 )
             }
         }
+    }
+
+    private companion object {
+        const val ANDROID_PLATFORM = "android"
+        const val IOS_PLATFORM = "ios"
     }
 }

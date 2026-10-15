@@ -19,12 +19,14 @@ import ru.alcoserver.config.AppConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import kotlinx.serialization.json.Json
+import ru.alcoserver.plugins.AppCheckPlugin
 import ru.alcoserver.routes.adviceRoute
 import ru.alcoserver.routes.donateRoute
 import ru.alcoserver.routes.healthRoute
 import ru.alcoserver.routes.integrityRoute
 import ru.alcoserver.routes.notificationRoute
 import ru.alcoserver.services.AdviceService
+import ru.alcoserver.services.AppCheckService
 import ru.alcoserver.services.DonateService
 import ru.alcoserver.services.FirebaseService
 import ru.alcoserver.services.IntegrityService
@@ -44,8 +46,9 @@ fun main() {
 fun Application.configureServer() {
     val logger = LoggerFactory.getLogger("Application")
 
-    val integrityService = IntegrityService()
     val firebaseService = FirebaseService()
+    val appCheckService = AppCheckService()
+    val integrityService = IntegrityService(appCheckService)
     val rateLimiterService = RateLimiterService(maxRequestsPerMinute = 20)
     val requestLogger = RequestLoggerService()
     val adviceService = AdviceService(rateLimiterService)
@@ -84,6 +87,11 @@ fun Application.configureServer() {
     }
 
     routing {
+        install(AppCheckPlugin) {
+            service = appCheckService
+            mode = AppConfig.appCheckMode
+        }
+
         healthRoute()
         integrityRoute(integrityService)
         notificationRoute(firebaseService)

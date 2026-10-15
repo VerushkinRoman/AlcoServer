@@ -13,7 +13,7 @@ import ru.alcoserver.models.IntegrityInvalidReason
 import ru.alcoserver.models.IntegrityRequest
 import ru.alcoserver.models.IntegrityResult
 import ru.alcoserver.routes.APIConstants.API_PATH
-import ru.alcoserver.services.IntegrityService
+import ru.alcoserver.services.IntegrityVerifier
 
 @Serializable
 data class IntegritySuccessResponse(
@@ -52,7 +52,10 @@ data class IntegrityBadRequestResponse(
 
 private const val INTEGRITY_ROUTE = "/integrity"
 
-fun Route.integrityRoute(integrityService: IntegrityService) {
+private const val PLATFORM_ANDROID = "android"
+private const val PLATFORM_IOS = "ios"
+
+fun Route.integrityRoute(integrityVerifier: IntegrityVerifier) {
     val logger = LoggerFactory.getLogger("IntegrityRoute")
 
     route(API_PATH + INTEGRITY_ROUTE) {
@@ -70,9 +73,20 @@ fun Route.integrityRoute(integrityService: IntegrityService) {
                     return@post
                 }
 
+                val platform = request.platform?.trim()?.lowercase()
+                if (platform != null && platform != PLATFORM_ANDROID && platform != PLATFORM_IOS) {
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        IntegrityBadRequestResponse(
+                            error = "Unsupported platform: ${request.platform}"
+                        )
+                    )
+                    return@post
+                }
+
                 logger.info("Received integrity verification request")
 
-                when (val result = integrityService.verifyToken(request.token)) {
+                when (val result = integrityVerifier.verify(request)) {
                     is IntegrityResult.Valid -> {
                         call.respond(
                             HttpStatusCode.OK,
@@ -131,6 +145,9 @@ fun Route.integrityRoute(integrityService: IntegrityService) {
 
                             is IntegrityErrorMessage.NetworkError ->
                                 "Network error: ${error.message}"
+
+                            is IntegrityErrorMessage.UnsupportedPlatform ->
+                                "Unsupported platform: ${error.platform}"
                         }
 
                         call.respond(

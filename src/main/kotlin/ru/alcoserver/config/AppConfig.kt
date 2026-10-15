@@ -25,9 +25,38 @@ object AppConfig {
 
     val cloudProjectNumber: Long = config.getLong("google.cloud.project-number")
 
+    val appCheckMode: AppCheckMode = AppCheckMode.fromValue(
+        System.getenv("APP_CHECK_MODE") ?: config.stringOrDefault("app-check.mode", "monitor")
+    )
+
     val yookassaShopId: String = config.getString("yookassa.shop-id")
     val yookassaSecretKey: String = config.getString("yookassa.secret-key")
     val yookassaClientPublicKey: String = config.getString("yookassa.client-public-key")
+
+    val appleTeamId: String? = config.stringOrNull("apple.team-id")
+    val appleBundleId: String? = config.stringOrNull("apple.bundle-id")
+    val appleDeviceCheckKeyPath: String? = config.stringOrNull("apple.devicecheck-key-path")
+    val appCheckJwksUrl: String = config.stringOrDefault(
+        "apple.app-check-jwks",
+        "https://firebaseappcheck.googleapis.com/v1/jwks"
+    )
+
+    /**
+     * App Attest relies on the relying-party identifier `{teamID}.{bundleID}`.
+     * Returns `null` when the Apple configuration is not provided, so native
+     * App Attest verification can be skipped in favour of the App Check proxy.
+     */
+    val appleAppIdentifier: String? = run {
+        val teamId = appleTeamId
+        val bundleId = appleBundleId
+        if (teamId.isNullOrBlank() || bundleId.isNullOrBlank()) null else "$teamId.$bundleId"
+    }
+
+    private fun Config.stringOrNull(path: String): String? =
+        if (hasPath(path)) getString(path) else null
+
+    private fun Config.stringOrDefault(path: String, default: String): String =
+        if (hasPath(path)) getString(path) else default
 
     private fun resolveFirebaseConfigPath(): String {
         val envPath = System.getenv("FIREBASE_CONFIG_PATH")

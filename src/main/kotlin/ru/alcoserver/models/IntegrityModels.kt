@@ -5,7 +5,11 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class IntegrityRequest(
     val token: String,
-    val nonce: String? = null
+    val platform: String? = null,
+    val nonce: String? = null,
+    val keyId: String? = null,
+    val assertion: String? = null,
+    val challenge: String? = null
 )
 
 sealed class IntegrityResult {
@@ -27,4 +31,5 @@ sealed class IntegrityErrorMessage {
     data object ConnectionTimeout : IntegrityErrorMessage()
     data object ServerUnreachable : IntegrityErrorMessage()
     data class NetworkError(val message: String?) : IntegrityErrorMessage()
+    data class UnsupportedPlatform(val platform: String?) : IntegrityErrorMessage()
 }
