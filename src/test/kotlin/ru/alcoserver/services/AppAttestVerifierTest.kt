@@ -86,7 +86,9 @@ class AppAttestVerifierTest {
     }
 
     private fun appAttestVerifier(jwkSource: JWKSource<SecurityContext>): AppAttestVerifier {
-        return AppAttestVerifier(projectNumber = projectNumber, jwkSource = jwkSource)
+        return AppAttestVerifier(
+            appCheckService = AppCheckService(projectNumber = projectNumber, jwkSource = jwkSource)
+        )
     }
 
     private class TestKeys {

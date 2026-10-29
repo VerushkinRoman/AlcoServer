@@ -79,8 +79,9 @@ fun Route.notificationRoute(firebaseService: FirebaseService) {
                     if (value.isNullOrBlank()) null else key to value
                 }.toMap()
 
+                // image_url передается отдельно в notification-пейлоад,
+                // НЕ кладём в data.
                 val result = firebaseService.sendNotification(request, data = extraData)
-
                 if (result.success) {
                     call.respond(
                         HttpStatusCode.OK,

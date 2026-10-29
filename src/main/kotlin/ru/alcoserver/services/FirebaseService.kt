@@ -17,6 +17,62 @@ import java.io.FileInputStream
 import java.io.FileNotFoundException
 import java.nio.file.Paths
 
+private const val FIREBASE_STORAGE_HOST = "firebasestorage.googleapis.com"
+
+private fun validateImageUrl(imageUrl: String?): String? =
+    imageUrl?.takeIf {
+        it.isNotBlank() && it.startsWith("https://") && it.contains(FIREBASE_STORAGE_HOST)
+    }
+
+private fun resolveNotificationType(rawType: String?): NotificationType =
+    NotificationType.entries.find { it.value == rawType?.takeIf(String::isNotBlank) }
+        ?: NotificationType.DEFAULT
+
+/**
+ * Собирает FCM-сообщение без обращения к Firebase Messaging.
+ *
+ * title, body и image выставляются в ОДНОМ `Notification.Builder`, чтобы
+ * последующая установка title/body не затирала `notification.image`.
+ */
+internal fun buildNotificationMessage(
+    notificationDTO: NotificationDTO,
+    data: Map<String, String> = emptyMap(),
+): Message {
+    val notificationType = resolveNotificationType(notificationDTO.type)
+
+    val notificationBuilder = Notification.builder()
+        .setTitle(notificationDTO.title)
+        .setBody(notificationDTO.body)
+    // image валидируется и живёт только в notification-пейлоаде, не в data.
+    validateImageUrl(notificationDTO.imageUrl)?.let(notificationBuilder::setImage)
+
+    val messageBuilder = Message.builder()
+        .setFid(notificationDTO.token)
+        .setNotification(notificationBuilder.build())
+        .putData("type", notificationType.value)
+        .putData("message", notificationDTO.body)
+        .putData("title", notificationDTO.title)
+
+    data.forEach { (key, value) ->
+        messageBuilder.putData(key, value)
+    }
+
+    // Контракт спеки (notifications, «Пуш-уведомления»): каждое сообщение
+    // гибридное — system tray показывает его при убитом/фоновом приложении,
+    // data-пейлоад остаётся служебным слоем. Data-only режим удалён.
+    messageBuilder.setAndroidConfig(
+        AndroidConfig.builder()
+            .setNotification(
+                AndroidNotification.builder()
+                    .setChannelId(notificationType.channelId)
+                    .build()
+            )
+            .build()
+    )
+
+    return messageBuilder.build()
+}
+
 class FirebaseService {
     private val logger = LoggerFactory.getLogger(FirebaseService::class.java)
 
@@ -68,44 +124,10 @@ class FirebaseService {
 
     fun sendNotification(
         notificationDTO: NotificationDTO,
-        dataOnly: Boolean = false,
         data: Map<String, String> = emptyMap(),
     ): NotificationResponse {
         return try {
-            val requestedType = notificationDTO.type?.takeIf { it.isNotBlank() } ?: NotificationType.DEFAULT.value
-            val notificationType = NotificationType.entries
-                .find { it.value == requestedType }
-                ?: NotificationType.DEFAULT
-
-            val messageBuilder = Message.builder()
-                .setFid(notificationDTO.token)
-                .putData("type", notificationType.value)
-                .putData("message", notificationDTO.body)
-                .putData("title", notificationDTO.title)
-
-            data.forEach { (key, value) ->
-                messageBuilder.putData(key, value)
-            }
-
-            if (!dataOnly) {
-                messageBuilder.setNotification(
-                    Notification.builder()
-                        .setTitle(notificationDTO.title)
-                        .setBody(notificationDTO.body)
-                        .build()
-                )
-                messageBuilder.setAndroidConfig(
-                    AndroidConfig.builder()
-                        .setNotification(
-                            AndroidNotification.builder()
-                                .setChannelId(notificationType.channelId)
-                                .build()
-                        )
-                        .build()
-                )
-            }
-
-            val message = messageBuilder.build()
+            val message = buildNotificationMessage(notificationDTO, data)
 
             val response = FirebaseMessaging.getInstance().send(message)
 

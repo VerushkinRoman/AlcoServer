@@ -6,7 +6,14 @@ import kotlinx.serialization.Serializable
 data class AdviceRequest(
     val token: String,
     val locale: String = "Ru",
-    val data: List<DrinkData>
+    val data: List<DrinkData>,
+    /**
+     * Идентичность запрашивающего (change minimize-server-firestore-reads):
+     * по ней пишется фиду без чтений Firestore-каталога. Оба поля nullable —
+     * старые клиенты их не передают, тогда работает фолбэк-резолв по токену.
+     */
+    val email: String? = null,
+    val uid: String? = null,
 )
 
 @Serializable

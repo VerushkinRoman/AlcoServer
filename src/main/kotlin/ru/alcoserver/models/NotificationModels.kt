@@ -12,6 +12,7 @@ data class NotificationDTO(
     val friendEmail: String? = null,
     val date: String? = null,
     val drinkType: String? = null,
+    val imageUrl: String? = null,
 )
 
 @Serializable

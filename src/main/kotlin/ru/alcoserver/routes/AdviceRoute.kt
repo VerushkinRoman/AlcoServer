@@ -29,6 +29,7 @@ import ru.alcoserver.services.AdviceService
 import ru.alcoserver.services.FirebaseService
 import ru.alcoserver.services.RateLimitResult
 import ru.alcoserver.services.RequestLoggerService
+import ru.alcoserver.services.writeAdviceNotificationToFeed
 import kotlin.time.Clock
 
 @Serializable
@@ -146,7 +147,9 @@ fun Route.adviceRoute(
                                         request.token,
                                         title,
                                         advice,
-                                        logger
+                                        logger,
+                                        request.email,
+                                        request.uid,
                                     )
                                 } else {
                                     logger.info("Advice is null (not sober or prompts disabled), skipping notification")
@@ -203,7 +206,9 @@ fun Route.adviceRoute(
                                         request.token,
                                         title,
                                         advice,
-                                        logger
+                                        logger,
+                                        request.email,
+                                        request.uid,
                                     )
                                 } else {
                                     logger.info("Advice is null (not sober or prompts disabled), skipping notification")
@@ -359,7 +364,9 @@ private fun sendNotification(
     token: String,
     title: String,
     body: String,
-    logger: org.slf4j.Logger
+    logger: org.slf4j.Logger,
+    email: String?,
+    uid: String?,
 ) {
     try {
         val notificationDTO = NotificationDTO(
@@ -369,10 +376,23 @@ private fun sendNotification(
             type = NotificationType.ADVICE.value,
         )
 
-        val result = firebaseService.sendNotification(notificationDTO, dataOnly = true)
+        // Гибридный пейлоад без исключений: совет доставляется системе в шторку
+        // даже при убитом приложении (контракт спеки «Пуш-уведомления»).
+        val result = firebaseService.sendNotification(notificationDTO)
 
         if (result.success) {
             logger.info("Notification sent successfully to token: ${token.take(10)}...")
+            // Фид совета пишет сервер при отправке (спека «AI-советы»):
+            // идемпотентно по messageId; идентичность — из запроса (email/uid),
+            // без чтений Firestore; фолбэк-резолв по токену — для старых клиентов.
+            writeAdviceNotificationToFeed(
+                token = token,
+                messageId = result.messageId,
+                title = title,
+                body = body,
+                email = email,
+                uid = uid,
+            )
         } else {
             logger.error("Failed to send notification: ${result.error}")
         }

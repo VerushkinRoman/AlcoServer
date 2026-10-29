@@ -11,6 +11,30 @@ data class DonateRequest(
     val userId: String? = null,
     val redirect: Boolean = false,
     @SerialName("return_url") val returnUrl: String? = null,
+    /**
+     * Идентичность плательщика для снапшота `payments/{paymentId}`
+     * (change minimize-server-firestore-reads). Nullable — старые клиенты
+     * их не передают.
+     */
+    val email: String? = null,
+    val locale: String? = null,
+    val token: String? = null,
+)
+
+/**
+ * Снапшот платежа — маленький док `payments/{paymentId}` с идентичностью
+ * плательщика (change minimize-server-firestore-reads): вебхук и проверка
+ * берут uid/email/locale/token из него БЕЗ чтения Firestore-каталога.
+ * Пишется при создании платежа (идемпотентная перезапись по paymentId),
+ * удаляется после успешного проведения и подтверждения платежа.
+ */
+data class PaymentSnapshot(
+    val uid: String? = null,
+    val email: String? = null,
+    val locale: String? = null,
+    val token: String? = null,
+    val amount: String? = null,
+    val createdAt: Long = 0L,
 )
 
 @Serializable
