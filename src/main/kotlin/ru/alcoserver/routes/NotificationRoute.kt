@@ -34,6 +34,24 @@ data class NotificationBadRequestResponse(
 private const val NOTIFICATIONS_ROUTE = "/notifications"
 private const val SEND_PATH = "/send"
 
+/**
+ * Служебный data-пейлоад сообщения. Пустые значения отбрасываются: старые сборки декодируют
+ * строго и не должны получать пустые ключи. `friend_uid` — идентификатор второго участника
+ * социального события; без него клиент не может связать пуш с человеком, если почта в аккаунте
+ * сменилась.
+ */
+internal fun notificationExtraData(request: NotificationDTO): Map<String, String> =
+    mapOf(
+        // "message_type" is a reserved key in the FCM v1 data payload
+        "msg_type" to request.messageType,
+        "friend_email" to request.friendEmail,
+        "friend_uid" to request.friendUid,
+        "date" to request.date,
+        "drink_type" to request.drinkType,
+    ).mapNotNull { (key, value) ->
+        if (value.isNullOrBlank()) null else key to value
+    }.toMap()
+
 fun Route.notificationRoute(firebaseService: FirebaseService) {
     val logger = LoggerFactory.getLogger("NotificationRoute")
 
@@ -69,15 +87,7 @@ fun Route.notificationRoute(firebaseService: FirebaseService) {
                 val type = request.type ?: NotificationType.DEFAULT.value
                 logger.info("Sending notification: ${request.title} (type: $type)")
 
-                // "message_type" is a reserved key in the FCM v1 data payload
-                val extraData = mapOf(
-                    "msg_type" to request.messageType,
-                    "friend_email" to request.friendEmail,
-                    "date" to request.date,
-                    "drink_type" to request.drinkType,
-                ).mapNotNull { (key, value) ->
-                    if (value.isNullOrBlank()) null else key to value
-                }.toMap()
+                val extraData = notificationExtraData(request)
 
                 // image_url передается отдельно в notification-пейлоад,
                 // НЕ кладём в data.

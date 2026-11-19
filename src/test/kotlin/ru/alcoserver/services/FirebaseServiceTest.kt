@@ -10,6 +10,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import ru.alcoserver.models.NotificationDTO
 import ru.alcoserver.models.NotificationType
+import ru.alcoserver.routes.notificationExtraData
 
 class FirebaseServiceTest {
 
@@ -21,13 +22,44 @@ class FirebaseServiceTest {
         body: String = "Пейте больше воды",
         imageUrl: String? = null,
         type: String? = null,
+        friendEmail: String? = null,
+        friendUid: String? = null,
     ): NotificationDTO = NotificationDTO(
         title = title,
         body = body,
         token = "fid-test-token",
         type = type,
         imageUrl = imageUrl,
+        friendEmail = friendEmail,
+        friendUid = friendUid,
     )
+
+    @Test
+    fun `friend uid is carried in data payload`() {
+        val request = dto(
+            title = "friend@x.com",
+            body = "принял вашу заявку",
+            type = "FRIEND_ACTIVITY",
+            friendEmail = "friend@x.com",
+            friendUid = "uid-friend",
+        )
+
+        val data = notificationExtraData(request)
+        assertEquals("friend@x.com", data["friend_email"])
+        assertEquals("uid-friend", data["friend_uid"])
+
+        val message = buildNotificationMessage(request, data)
+        assertEquals("friend@x.com", message.notificationField().stringField("title"))
+        assertEquals("uid-friend", message.dataField()["friend_uid"])
+    }
+
+    @Test
+    fun `blank friend uid is dropped from data payload`() {
+        val data = notificationExtraData(dto(friendEmail = "friend@x.com", friendUid = "  "))
+
+        assertFalse(data.containsKey("friend_uid"), "пустой friend_uid SHALL NOT попадать в data")
+        assertEquals("friend@x.com", data["friend_email"])
+    }
 
     @Test
     fun `image survives title and body assignment`() {
