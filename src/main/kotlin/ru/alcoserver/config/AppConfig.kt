@@ -3,6 +3,7 @@ package ru.alcoserver.config
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import java.io.File
+import java.nio.file.Path
 import java.nio.file.Paths
 
 object AppConfig {
@@ -24,6 +25,18 @@ object AppConfig {
     val firebaseConfigPath: String = resolveFirebaseConfigPath()
 
     val cloudProjectNumber: Long = config.getLong("google.cloud.project-number")
+
+    /** Проект Firebase: нужен Admin SDK для проверки ID-токенов загрузки аватаров. */
+    val firebaseProjectId: String = System.getenv("FIREBASE_PROJECT_ID")
+        ?: config.stringOrDefault("firebase.project-id", "alcocalendar")
+
+    /**
+     * Медиа вместо Firebase Storage: публичный базовый URL и каталог на диске.
+     * URL обязан быть доступен без авторизации — по нему картинку скачивает
+     * системный загрузчик уведомлений.
+     */
+    val mediaBaseUrl: String = config.stringOrDefault("media.base-url", "https://alcoserver.ru:3344")
+    val mediaDir: Path = Paths.get(config.stringOrDefault("media.dir", "media"))
 
     val appCheckMode: AppCheckMode = AppCheckMode.fromValue(
         System.getenv("APP_CHECK_MODE") ?: config.stringOrDefault("app-check.mode", "monitor")

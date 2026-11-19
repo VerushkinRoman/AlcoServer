@@ -14,6 +14,12 @@ data class AdviceRequest(
      */
     val email: String? = null,
     val uid: String? = null,
+
+    /**
+     * Публичный URL брендовой картинки для шторки (change push-avatar-images).
+     * Старые клиенты поле не передают — совет уходит без картинки, как раньше.
+     */
+    val imageUrl: String? = null,
 )
 
 @Serializable

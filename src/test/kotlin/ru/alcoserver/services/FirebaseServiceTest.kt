@@ -2,6 +2,9 @@ package ru.alcoserver.services
 
 import com.google.firebase.messaging.AndroidConfig
 import com.google.firebase.messaging.AndroidNotification
+import com.google.firebase.messaging.ApnsConfig
+import com.google.firebase.messaging.ApnsFcmOptions
+import com.google.firebase.messaging.ApsAlert
 import com.google.firebase.messaging.Message
 import com.google.firebase.messaging.Notification
 import kotlin.test.Test
@@ -15,7 +18,7 @@ import ru.alcoserver.routes.notificationExtraData
 class FirebaseServiceTest {
 
     private val validImageUrl =
-        "https://firebasestorage.googleapis.com/v0/b/alcocalendar/o/advice%2Fday.jpg?alt=media"
+        "https://alcoserver.ru:3344/media/public/brand.png"
 
     private fun dto(
         title: String = "Совет дня",
@@ -24,7 +27,9 @@ class FirebaseServiceTest {
         type: String? = null,
         friendEmail: String? = null,
         friendUid: String? = null,
+        id: String? = null,
     ): NotificationDTO = NotificationDTO(
+        id = id,
         title = title,
         body = body,
         token = "fid-test-token",
@@ -77,6 +82,23 @@ class FirebaseServiceTest {
     }
 
     @Test
+    fun `advice and payment pushes stay hybrid and keep the image`() {
+        listOf(NotificationType.ADVICE, NotificationType.PAYMENT_SUCCESS).forEach { type ->
+            val message = buildNotificationMessage(dto(imageUrl = validImageUrl, type = type.value))
+
+            // notification-блок: показывается системой без запуска приложения и несёт картинку
+            // (именно его читает iOS, где вложение даст NSE из отдельного change).
+            val notification = message.notificationField()
+            assertEquals(validImageUrl, notification.stringField("image"), "image SHALL оставаться у ${type.value}")
+            assertEquals("Совет дня", notification.stringField("title"))
+
+            // data-часть и канал Android в том же сообщении: доставка не переходит в data-only.
+            assertEquals(type.value, message.dataField()["type"])
+            assertEquals(type.channelId, message.androidNotificationField().stringField("channelId"))
+        }
+    }
+
+    @Test
     fun `image stays out of data payload`() {
         val message = buildNotificationMessage(dto(imageUrl = validImageUrl))
 
@@ -91,8 +113,9 @@ class FirebaseServiceTest {
     @Test
     fun `invalid image url is dropped but title and body remain`() {
         listOf(
-            "http://firebasestorage.googleapis.com/v0/b/alcocalendar/o/advice.jpg",
+            "http://alcoserver.ru:3344/media/public/brand.png",
             "https://example.com/advice.jpg",
+            "https://firebasestorage.googleapis.com/v0/b/alcocalendar/o/advice.jpg",
             " ",
         ).forEach { invalidUrl ->
             val notification = buildNotificationMessage(dto(imageUrl = invalidUrl)).notificationField()
@@ -136,6 +159,81 @@ class FirebaseServiceTest {
         assertEquals("water", data["drinkType"])
     }
 
+    @Test
+    fun `message id becomes android tag and data tag`() {
+        val request = dto(type = NotificationType.FRIEND_ACTIVITY.value, id = "msg-42")
+
+        val message = buildNotificationMessage(request)
+
+        assertEquals("msg-42", message.dataField()["tag"], "клиент берёт tag из data")
+        assertEquals(
+            "msg-42",
+            message.androidNotificationField().stringField("tag"),
+            "системный показ SHALL заменять уведомление по тому же tag",
+        )
+    }
+
+    @Test
+    fun `message without id has no tag`() {
+        val request = dto(type = NotificationType.FRIEND_ACTIVITY.value)
+
+        val message = buildNotificationMessage(request)
+
+        assertNull(message.dataField()["tag"], "без id tag не задаётся: старые клиенты")
+        assertNull(message.androidNotificationField().stringField("tag"))
+    }
+
+    @Test
+    fun `image source classifies urls for logging`() {
+        assertEquals("none", imageSource(null))
+        assertEquals("none", imageSource(" "))
+        assertEquals("push", imageSource("https://alcoserver.ru:3344/media/avatars/u-push.png?v=7"))
+        assertEquals("compact", imageSource("https://alcoserver.ru:3344/media/avatars/u.png?v=7"))
+        assertEquals("static", imageSource("https://alcoserver.ru:3344/media/public/brand.png"))
+        assertEquals("invalid", imageSource("https://example.com/brand.png"))
+    }
+
+    @Test
+    fun `ios payload is an alert push with mutable content and the same image`() {
+        val apns = buildNotificationMessage(dto(imageUrl = validImageUrl, type = "friend_activity"))
+            .apnsConfigField()
+
+        assertEquals("alert", apns.headersField()["apns-push-type"])
+        assertEquals("10", apns.headersField()["apns-priority"])
+
+        val aps = apns.apsField()
+        val alert = aps["alert"] as ApsAlert
+        assertEquals("Совет дня", alert.stringField("title"))
+        assertEquals("Пейте больше воды", alert.stringField("body"))
+        assertEquals("default", aps["sound"])
+        // 1, а не true: APNs ждёт ровно единицу.
+        assertEquals(1, aps["mutable-content"], "mutable-content SHALL запускать расширение")
+        assertEquals(validImageUrl, apns.fcmOptionsField()?.stringField("image"))
+    }
+
+    @Test
+    fun `mutable content stays on even without an image`() {
+        val apns = buildNotificationMessage(dto(imageUrl = null)).apnsConfigField()
+
+        assertEquals(1, apns.apsField()["mutable-content"], "без флага расширение не запустится и заглушки не будет")
+        assertNull(apns.fcmOptionsField()?.stringField("image"))
+    }
+
+    @Test
+    fun `data keys used by ios bridge survive the apns branch`() {
+        val message = buildNotificationMessage(
+            dto(type = "friend_activity", friendEmail = "friend@x.com", friendUid = "uid-friend", id = "n-1"),
+            notificationExtraData(dto(type = "friend_activity", friendEmail = "friend@x.com", friendUid = "uid-friend", id = "n-1")),
+        )
+
+        val data = message.dataField()
+        assertEquals("friend_activity", data["type"])
+        assertEquals("Совет дня", data["title"])
+        assertEquals("Пейте больше воды", data["message"])
+        assertEquals("uid-friend", data["friend_uid"])
+        assertEquals("n-1", data["tag"])
+    }
+
     // firebase-admin не публикует геттеры для Message/Notification (они package-private),
     // поэтому фактический пейлоад читается рефлексией.
     private fun Any.readField(name: String): Any? =
@@ -150,6 +248,22 @@ class FirebaseServiceTest {
         @Suppress("UNCHECKED_CAST")
         return requireNotNull(readField("data")) as Map<String, String>
     }
+
+    private fun Message.apnsConfigField(): ApnsConfig =
+        requireNotNull(readField("apnsConfig")) as ApnsConfig
+
+    private fun ApnsConfig.headersField(): Map<String, String> {
+        @Suppress("UNCHECKED_CAST")
+        return requireNotNull(readField("headers")) as Map<String, String>
+    }
+
+    private fun ApnsConfig.apsField(): Map<String, Any> {
+        val payload = requireNotNull(readField("payload")) as Map<*, *>
+        @Suppress("UNCHECKED_CAST")
+        return requireNotNull(payload["aps"]) as Map<String, Any>
+    }
+
+    private fun ApnsConfig.fcmOptionsField(): ApnsFcmOptions? = readField("fcmOptions") as ApnsFcmOptions?
 
     private fun Message.androidNotificationField(): AndroidNotification {
         val androidConfig = requireNotNull(readField("androidConfig")) as AndroidConfig

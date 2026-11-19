@@ -150,6 +150,7 @@ fun Route.adviceRoute(
                                         logger,
                                         request.email,
                                         request.uid,
+                                        request.imageUrl,
                                     )
                                 } else {
                                     logger.info("Advice is null (not sober or prompts disabled), skipping notification")
@@ -209,6 +210,7 @@ fun Route.adviceRoute(
                                         logger,
                                         request.email,
                                         request.uid,
+                                        request.imageUrl,
                                     )
                                 } else {
                                     logger.info("Advice is null (not sober or prompts disabled), skipping notification")
@@ -367,6 +369,7 @@ private fun sendNotification(
     logger: org.slf4j.Logger,
     email: String?,
     uid: String?,
+    imageUrl: String? = null,
 ) {
     try {
         val notificationDTO = NotificationDTO(
@@ -374,6 +377,9 @@ private fun sendNotification(
             body = body,
             token = token,
             type = NotificationType.ADVICE.value,
+            // Брендовая картинка для шторки (change push-avatar-images). Старые клиенты
+            // поле не передают — совет уходит без картинки, как раньше.
+            imageUrl = imageUrl,
         )
 
         // Гибридный пейлоад без исключений: совет доставляется системе в шторку

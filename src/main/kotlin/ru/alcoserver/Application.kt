@@ -21,15 +21,18 @@ import io.ktor.client.engine.cio.CIO
 import kotlinx.serialization.json.Json
 import ru.alcoserver.plugins.AppCheckPlugin
 import ru.alcoserver.routes.adviceRoute
+import ru.alcoserver.routes.avatarRoute
 import ru.alcoserver.routes.donateRoute
 import ru.alcoserver.routes.healthRoute
 import ru.alcoserver.routes.integrityRoute
+import ru.alcoserver.routes.mediaRoute
 import ru.alcoserver.routes.notificationRoute
 import ru.alcoserver.services.AdviceService
 import ru.alcoserver.services.AppCheckService
 import ru.alcoserver.services.DonateService
 import ru.alcoserver.services.FirebaseService
 import ru.alcoserver.services.IntegrityService
+import ru.alcoserver.services.MediaStorageService
 import ru.alcoserver.services.RateLimiterService
 import ru.alcoserver.services.RequestLoggerService
 
@@ -61,6 +64,10 @@ fun Application.configureServer() {
         }
     }
     val donateService = DonateService(httpClient, firebaseService)
+    val mediaStorage = MediaStorageService(
+        root = AppConfig.mediaDir,
+        baseUrl = AppConfig.mediaBaseUrl,
+    )
 
     install(io.ktor.server.plugins.contentnegotiation.ContentNegotiation) {
         json(Json {
@@ -92,6 +99,9 @@ fun Application.configureServer() {
             mode = AppConfig.appCheckMode
         }
 
+        // /media/** вне /api: App Check его не трогает, а картинку скачивает система.
+        mediaRoute(mediaStorage)
+        avatarRoute(mediaStorage, firebaseService::verifyIdTokenUid)
         healthRoute()
         integrityRoute(integrityService)
         notificationRoute(firebaseService)
