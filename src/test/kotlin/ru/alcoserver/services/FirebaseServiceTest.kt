@@ -187,9 +187,8 @@ class FirebaseServiceTest {
     fun `image source classifies urls for logging`() {
         assertEquals("none", imageSource(null))
         assertEquals("none", imageSource(" "))
-        assertEquals("push", imageSource("https://alcoserver.ru:3344/media/avatars/u-push.png?v=7"))
-        assertEquals("compact", imageSource("https://alcoserver.ru:3344/media/avatars/u.png?v=7"))
-        assertEquals("static", imageSource("https://alcoserver.ru:3344/media/public/brand.png"))
+        assertEquals("avatar-canvas", imageSource("https://alcoserver.ru:3344/media/avatars/u.png?v=7"))
+        assertEquals("brand", imageSource("https://alcoserver.ru:3344/media/public/brand.png"))
         assertEquals("invalid", imageSource("https://example.com/brand.png"))
     }
 

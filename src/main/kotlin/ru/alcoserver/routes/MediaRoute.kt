@@ -11,6 +11,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
+import io.ktor.server.routing.head
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
@@ -34,8 +35,7 @@ private data class MediaErrorResponse(val error: String)
  */
 fun Route.mediaRoute(mediaStorage: MediaStorageService) {
     get("/media/{path...}") {
-        val segments = call.parameters.getAll("path").orEmpty()
-        val file = mediaStorage.read(segments.joinToString("/"))
+        val file = mediaStorage.read(call.mediaPath())
         if (file == null) {
             call.respond(HttpStatusCode.NotFound, MediaErrorResponse("not found"))
             return@get
@@ -43,15 +43,28 @@ fun Route.mediaRoute(mediaStorage: MediaStorageService) {
         call.response.header(HttpHeaders.CacheControl, "public, max-age=31536000, immutable")
         call.respondBytes(file.bytes, ContentType.parse(file.contentType))
     }
+
+    // Проверка существования файла перед отправкой пуша: клиенту нужен только код ответа,
+    // поэтому HEAD без тела и без чтения байтов.
+    head("/media/{path...}") {
+        if (mediaStorage.read(call.mediaPath()) == null) {
+            call.respond(HttpStatusCode.NotFound)
+            return@head
+        }
+        call.response.header(HttpHeaders.CacheControl, "public, max-age=31536000, immutable")
+        call.respond(HttpStatusCode.OK)
+    }
 }
 
+private fun ApplicationCall.mediaPath(): String =
+    parameters.getAll("path").orEmpty().joinToString("/")
+
 /**
- * Приём зеркал аватара: `POST /api/v1/avatars/{uid}` (240 px) и `.../{uid}/push`
- * (64 px для шторки).
+ * Приём картинки пуша: `POST /api/v1/avatars/{uid}`.
  *
- * Тело — сырой JPEG (не multipart): клиент шлёт уже сжатые байты. Доступ требует
- * Firebase ID-токен пользователя, и uid из пути обязан совпадать с uid токена, иначе
- * любой мог бы перезаписать чужой аватар.
+ * Тело — сырые байты PNG (кадр 2:1, собранный клиентом) или JPEG старого формата. Доступ требует
+ * Firebase ID-токен пользователя, и uid из пути обязан совпадать с uid токена, иначе любой мог бы
+ * перезаписать чужой аватар.
  */
 fun Route.avatarRoute(
     mediaStorage: MediaStorageService,
@@ -59,10 +72,7 @@ fun Route.avatarRoute(
 ) {
     route(API_PATH + "/avatars/{uid}") {
         post {
-            call.handleAvatarUpload(mediaStorage, verifyToken, push = false)
-        }
-        post("/push") {
-            call.handleAvatarUpload(mediaStorage, verifyToken, push = true)
+            call.handleAvatarUpload(mediaStorage, verifyToken)
         }
     }
 }
@@ -70,7 +80,6 @@ fun Route.avatarRoute(
 private suspend fun ApplicationCall.handleAvatarUpload(
     mediaStorage: MediaStorageService,
     verifyToken: (String?) -> String?,
-    push: Boolean,
 ) {
     val uid = parameters["uid"].orEmpty()
 
@@ -95,7 +104,7 @@ private suspend fun ApplicationCall.handleAvatarUpload(
         return
     }
 
-    when (val result = mediaStorage.saveAvatar(uid, push, bytes)) {
+    when (val result = mediaStorage.saveAvatar(uid, bytes)) {
         is AvatarSaveResult.Saved -> respond(AvatarUploadResponse(result.url))
         AvatarSaveResult.InvalidName -> respond(
             HttpStatusCode.BadRequest,
@@ -103,7 +112,7 @@ private suspend fun ApplicationCall.handleAvatarUpload(
         )
         AvatarSaveResult.InvalidImage -> respond(
             HttpStatusCode.UnsupportedMediaType,
-            MediaErrorResponse("jpeg expected"),
+            MediaErrorResponse("png or jpeg expected"),
         )
         AvatarSaveResult.TooLarge -> respond(
             HttpStatusCode.PayloadTooLarge,

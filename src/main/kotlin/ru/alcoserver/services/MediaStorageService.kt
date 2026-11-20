@@ -41,15 +41,16 @@ data class MediaFile(
  * Хранилище медиа на диске сервера вместо Firebase Storage (Blaze не используется).
  *
  * Раскладка на диске повторяет публичные пути:
- * - `avatars/{uid}.png` и `avatars/{uid}-push.png` — зеркала аватаров, по одному файлу на вид;
- * - `public/brand.png`, `public/default-avatar.png` — статичные картинки пушей, кладутся вручную.
+ * - `avatars/{uid}.png` — единственная картинка пуша пользователя (кадр 2:1);
+ * - `public/brand.png`, `public/default-avatar.png` — статичные картинки, кладутся вручную.
  *
- * Аватар — PNG с прозрачными углами: клиент шлёт квадратный JPEG, сервер вырезает круг,
- * поэтому в шторке уведомления картинка круглая, как аватар в приложении.
+ * Клиент шлёт уже собранный PNG-кадр 2:1 с прозрачными полями, и сервер кладёт его как есть: без
+ * перерисовки и без потери альфы. JPEG старого формата всё ещё принимается: сервер сам обрезает
+ * квадрат и вырезает круг, чтобы старые сборки не остались без картинки.
  *
- * Версии аватара на диске нет: новый аватар перезаписывает прежний файл того же вида, поэтому
- * один пользователь занимает максимум два файла. Актуальность картинки в кэшах обеспечивает
- * клиент параметром `?v={version}` в URL — сам сервер путь версии не знает.
+ * Версии аватара на диске нет: новый аватар перезаписывает прежний файл, поэтому пользователь
+ * занимает ровно один файл. Актуальность картинки в кэшах обеспечивает клиент параметром
+ * `?v={version}` в URL — сам сервер путь версии не знает.
  *
  * Пути под `/media` отдаются публично без авторизации: картинку для `notification.image`
  * скачивает Google Play services / APNs, у них нет ни Firebase-токена, ни App Check.
@@ -61,33 +62,36 @@ class MediaStorageService(
     private val mediaRoot: Path = root.toAbsolutePath().normalize()
     private val publicBase: String = baseUrl.trimEnd('/')
 
-    fun avatarUrl(uid: String, push: Boolean): String =
-        "$publicBase/media/avatars/$uid" + if (push) "-push.png" else ".png"
+    fun avatarUrl(uid: String): String = "$publicBase/media/avatars/$uid.png"
 
     fun assetUrl(fileName: String): String = "$publicBase/media/public/$fileName"
 
     /**
-     * Принимает квадратный JPEG, вырезает круг и кладёт PNG в `avatars/{uid}[-push].png`
-     * атомарной записью поверх прежнего файла: смена аватара не плодит файлов, а последняя
+     * Принимает PNG-кадр (новый клиент) или квадратный JPEG (старые сборки) и атомарно кладёт
+     * `avatars/{uid}.png` поверх прежнего файла: смена аватара не плодит файлов, а последняя
      * успешная загрузка всегда становится текущей.
      */
-    fun saveAvatar(uid: String, push: Boolean, bytes: ByteArray): AvatarSaveResult {
+    fun saveAvatar(uid: String, bytes: ByteArray): AvatarSaveResult {
         if (!UID_PATTERN.matches(uid)) return AvatarSaveResult.InvalidName
-        if (bytes.isEmpty() || !isJpeg(bytes)) return AvatarSaveResult.InvalidImage
+        if (bytes.isEmpty()) return AvatarSaveResult.InvalidImage
         if (bytes.size > MAX_AVATAR_BYTES) return AvatarSaveResult.TooLarge
 
-        val png = circlePng(bytes) ?: return AvatarSaveResult.InvalidImage
+        val png = when {
+            isPng(bytes) -> bytes
+            isJpeg(bytes) -> circlePng(bytes) ?: return AvatarSaveResult.InvalidImage
+            else -> return AvatarSaveResult.InvalidImage
+        }
 
         val directory = mediaRoot.resolve("avatars")
         Files.createDirectories(directory)
 
-        val fileName = uid + if (push) "-push.png" else ".png"
+        val fileName = "$uid.png"
         val target = directory.resolve(fileName)
         val temp = directory.resolve(".$fileName.${UUID.randomUUID()}.tmp")
         Files.write(temp, png)
         Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
 
-        return AvatarSaveResult.Saved(avatarUrl(uid, push))
+        return AvatarSaveResult.Saved(avatarUrl(uid))
     }
 
     /**
@@ -155,4 +159,16 @@ class MediaStorageService(
             bytes[0] == 0xFF.toByte() &&
             bytes[1] == 0xD8.toByte() &&
             bytes[2] == 0xFF.toByte()
+
+    /** PNG-сигнатура: клиент шлёт собранный кадр 2:1 и сервер не перерисовывает его. */
+    private fun isPng(bytes: ByteArray): Boolean =
+        bytes.size > PNG_SIGNATURE.size &&
+            PNG_SIGNATURE.indices.all { index -> bytes[index] == PNG_SIGNATURE[index] }
+
+    private companion object {
+        val PNG_SIGNATURE = byteArrayOf(
+            0x89.toByte(), 0x50.toByte(), 0x4E.toByte(), 0x47.toByte(),
+            0x0D.toByte(), 0x0A.toByte(), 0x1A.toByte(), 0x0A.toByte(),
+        )
+    }
 }

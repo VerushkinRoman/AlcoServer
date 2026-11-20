@@ -25,19 +25,30 @@ class MediaStorageServiceTest {
     }
 
     @Test
-    fun `compact and push versions live in separate files`() {
-        val compact = service.saveAvatar("uid-1", push = false, bytes = jpegOf(Color.RED))
-        val push = service.saveAvatar("uid-1", push = true, bytes = jpegOf(Color.RED))
+    fun `a user has exactly one avatar file`() {
+        val saved = service.saveAvatar("uid-1", bytes = jpegOf(Color.RED))
 
-        assertEquals("https://alcoserver.ru:3344/media/avatars/uid-1.png", (compact as AvatarSaveResult.Saved).url)
-        assertEquals("https://alcoserver.ru:3344/media/avatars/uid-1-push.png", (push as AvatarSaveResult.Saved).url)
+        assertEquals("https://alcoserver.ru:3344/media/avatars/uid-1.png", (saved as AvatarSaveResult.Saved).url)
         assertTrue(Files.isRegularFile(root.resolve("avatars/uid-1.png")))
-        assertTrue(Files.isRegularFile(root.resolve("avatars/uid-1-push.png")))
+        assertEquals(listOf("uid-1.png"), root.resolve("avatars").toFile().listNames())
+    }
+
+    @Test
+    fun `client png frame is stored as is`() {
+        val frame = pngOf(Color.RED, width = 64, height = 32)
+
+        val saved = service.saveAvatar("uid-1", bytes = frame)
+
+        assertTrue(saved is AvatarSaveResult.Saved)
+        assertTrue(
+            Files.readAllBytes(root.resolve("avatars/uid-1.png")).contentEquals(frame),
+            "PNG-кадр 2:1 SHALL сохраняться без перерисовки и без потери альфы",
+        )
     }
 
     @Test
     fun `avatar is stored as png circle with transparent corners`() {
-        service.saveAvatar("uid-1", push = false, bytes = jpegOf(Color.RED, side = 32))
+        service.saveAvatar("uid-1", bytes = jpegOf(Color.RED, side = 32))
 
         val stored = ImageIO.read(root.resolve("avatars/uid-1.png").toFile())
 
@@ -48,19 +59,18 @@ class MediaStorageServiceTest {
     }
 
     @Test
-    fun `saving a new avatar overwrites the previous file of the same kind`() {
-        service.saveAvatar("uid-1", push = false, bytes = jpegOf(Color.RED, side = 32))
-        service.saveAvatar("uid-1", push = true, bytes = jpegOf(Color.RED, side = 32))
+    fun `saving a new avatar overwrites the previous file`() {
+        service.saveAvatar("uid-1", bytes = jpegOf(Color.RED, side = 32))
 
-        service.saveAvatar("uid-1", push = false, bytes = jpegOf(Color.BLUE, side = 32))
+        service.saveAvatar("uid-1", bytes = jpegOf(Color.BLUE, side = 32))
 
         val names = root.resolve("avatars").toFile().listNames()
         val stored = ImageIO.read(root.resolve("avatars/uid-1.png").toFile())
 
         assertEquals(
-            listOf("uid-1-push.png", "uid-1.png"),
+            listOf("uid-1.png"),
             names,
-            "на пользователя остаётся ровно два файла — компактная и пуш-версия",
+            "на пользователя остаётся ровно один файл картинки пуша",
         )
         assertNotNull(stored)
         val center = stored.getRGB(16, 16)
@@ -73,7 +83,7 @@ class MediaStorageServiceTest {
     @Test
     fun `invalid names are rejected before touching disk`() {
         listOf("../evil", "", "u/../x", "a".repeat(65)).forEach { uid ->
-            assertEquals(AvatarSaveResult.InvalidName, service.saveAvatar(uid, push = false, bytes = jpegOf(Color.RED)))
+            assertEquals(AvatarSaveResult.InvalidName, service.saveAvatar(uid, bytes = jpegOf(Color.RED)))
         }
         assertTrue(!Files.exists(root.resolve("avatars")))
     }
@@ -82,15 +92,15 @@ class MediaStorageServiceTest {
     fun `non jpeg and oversized payloads are rejected`() {
         assertEquals(
             AvatarSaveResult.InvalidImage,
-            service.saveAvatar("uid-1", push = false, bytes = byteArrayOf(1, 2, 3, 4)),
+            service.saveAvatar("uid-1", bytes = byteArrayOf(1, 2, 3, 4)),
         )
         assertEquals(
             AvatarSaveResult.InvalidImage,
-            service.saveAvatar("uid-1", push = false, bytes = ByteArray(0)),
+            service.saveAvatar("uid-1", bytes = ByteArray(0)),
         )
         assertEquals(
             AvatarSaveResult.InvalidImage,
-            service.saveAvatar("uid-1", push = false, bytes = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())),
+            service.saveAvatar("uid-1", bytes = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())),
             "JPEG-сигнатура без декодируемого кадра не принимается",
         )
 
@@ -100,13 +110,13 @@ class MediaStorageServiceTest {
         oversized[2] = 0xFF.toByte()
         assertEquals(
             AvatarSaveResult.TooLarge,
-            service.saveAvatar("uid-1", push = false, bytes = oversized),
+            service.saveAvatar("uid-1", bytes = oversized),
         )
     }
 
     @Test
     fun `read serves only images inside the media root`() {
-        service.saveAvatar("uid-1", push = false, bytes = jpegOf(Color.RED))
+        service.saveAvatar("uid-1", bytes = jpegOf(Color.RED))
         Files.createDirectories(root.resolve("public"))
         root.resolve("public/brand.png").writeBytes(byteArrayOf(1, 2, 3))
         root.resolve("secret.txt").writeBytes(byteArrayOf(9))
@@ -130,6 +140,18 @@ class MediaStorageServiceTest {
         graphics.dispose()
         val output = ByteArrayOutputStream()
         ImageIO.write(image, "jpg", output)
+        return output.toByteArray()
+    }
+
+    /** PNG произвольного размера — как его шлёт новый клиент (кадр 2:1 с прозрачностью). */
+    private fun pngOf(color: Color, width: Int, height: Int): ByteArray {
+        val image = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
+        val graphics = image.createGraphics()
+        graphics.color = color
+        graphics.fillRect(0, 0, width, height)
+        graphics.dispose()
+        val output = ByteArrayOutputStream()
+        ImageIO.write(image, "png", output)
         return output.toByteArray()
     }
 

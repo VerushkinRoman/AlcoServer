@@ -2,6 +2,7 @@ package ru.alcoserver.routes
 
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
+import io.ktor.client.request.head
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -43,27 +44,69 @@ class MediaRouteTest {
     }
 
     @Test
-    fun `upload returns public url and file is served without auth`() = mediaApp { client ->
+    fun `upload returns single public url and file is served without auth`() = mediaApp { client ->
+        val frame = pngOf(Color.RED, width = 64, height = 32)
+        val response = client.post("/api/v1/avatars/uid-1") {
+            contentType(ContentType.Image.PNG)
+            header(HttpHeaders.Authorization, "Bearer valid-token")
+            setBody(frame)
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertTrue(response.bodyAsText().contains("/media/avatars/uid-1.png"))
+
+        val served = client.get("/media/avatars/uid-1.png")
+
+        assertEquals(HttpStatusCode.OK, served.status)
+        assertEquals("image/png", served.headers[HttpHeaders.ContentType])
+        assertEquals("public, max-age=31536000, immutable", served.headers[HttpHeaders.CacheControl])
+        assertTrue(
+            served.bodyAsBytes().contentEquals(frame),
+            "собранный клиентом кадр отдаётся без перерисовки",
+        )
+    }
+
+    @Test
+    fun `legacy jpeg upload still produces a round png`() = mediaApp { client ->
+        client.post("/api/v1/avatars/uid-1") {
+            contentType(ContentType.Image.JPEG)
+            header(HttpHeaders.Authorization, "Bearer valid-token")
+            setBody(jpeg)
+        }
+        val body = client.get("/media/avatars/uid-1.png").bodyAsBytes()
+
+        assertEquals(
+            listOf(0x89, 0x50, 0x4E, 0x47),
+            body.take(4).map { it.toInt() and 0xFF },
+            "старые сборки получают PNG с прозрачностью вместо JPEG",
+        )
+    }
+
+    @Test
+    fun `push route is gone`() = mediaApp { client ->
         val response = client.post("/api/v1/avatars/uid-1/push") {
             contentType(ContentType.Image.JPEG)
             header(HttpHeaders.Authorization, "Bearer valid-token")
             setBody(jpeg)
         }
 
-        assertEquals(HttpStatusCode.OK, response.status)
-        assertTrue(response.bodyAsText().contains("/media/avatars/uid-1-push.png"))
+        assertEquals(HttpStatusCode.NotFound, response.status)
+    }
 
-        val served = client.get("/media/avatars/uid-1-push.png")
+    @Test
+    fun `head reports whether the avatar file exists`() = mediaApp { client ->
+        assertEquals(HttpStatusCode.NotFound, client.head("/media/avatars/uid-1.png").status)
 
-        assertEquals(HttpStatusCode.OK, served.status)
-        assertEquals("image/png", served.headers[HttpHeaders.ContentType])
-        assertEquals("public, max-age=31536000, immutable", served.headers[HttpHeaders.CacheControl])
-        val body = served.bodyAsBytes()
-        assertEquals(
-            listOf(0x89, 0x50, 0x4E, 0x47),
-            body.take(4).map { it.toInt() and 0xFF },
-            "сервер отдаёт PNG с прозрачностью, а не присланный JPEG",
-        )
+        client.post("/api/v1/avatars/uid-1") {
+            contentType(ContentType.Image.PNG)
+            header(HttpHeaders.Authorization, "Bearer valid-token")
+            setBody(pngOf(Color.RED, width = 64, height = 32))
+        }
+
+        val head = client.head("/media/avatars/uid-1.png")
+
+        assertEquals(HttpStatusCode.OK, head.status)
+        assertEquals("public, max-age=31536000, immutable", head.headers[HttpHeaders.CacheControl])
     }
 
     @Test
@@ -114,7 +157,7 @@ class MediaRouteTest {
     }
 
     @Test
-    fun `non jpeg body is rejected`() = mediaApp { client ->
+    fun `non image body is rejected`() = mediaApp { client ->
         val response = client.post("/api/v1/avatars/uid-1") {
             contentType(ContentType.Image.PNG)
             header(HttpHeaders.Authorization, "Bearer valid-token")
@@ -129,6 +172,18 @@ class MediaRouteTest {
         val response = client.get("/media/avatars/missing.png")
 
         assertEquals(HttpStatusCode.NotFound, response.status)
+    }
+
+    /** PNG произвольного размера — так клиент присылает собранный кадр 2:1. */
+    private fun pngOf(color: Color, width: Int, height: Int): ByteArray {
+        val image = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
+        val graphics = image.createGraphics()
+        graphics.color = color
+        graphics.fillRect(0, 0, width, height)
+        graphics.dispose()
+        val output = ByteArrayOutputStream()
+        ImageIO.write(image, "png", output)
+        return output.toByteArray()
     }
 
     /** Квадратный JPEG одного цвета — валидный вход для загрузки аватара. */

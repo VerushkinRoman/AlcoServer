@@ -50,9 +50,8 @@ internal fun imageSource(imageUrl: String?): String =
     when {
         imageUrl.isNullOrBlank() -> "none"
         !imageUrl.contains("/media/") -> "invalid"
-        imageUrl.contains("/media/public/") -> "static"
-        imageUrl.contains("-push.png") -> "push"
-        else -> "compact"
+        imageUrl.contains("/media/public/") -> "brand"
+        else -> "avatar-canvas"
     }
 
 private fun resolveNotificationType(rawType: String?): NotificationType =
